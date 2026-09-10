@@ -57,7 +57,9 @@ def test_rejects_allow_live_trading(monkeypatch: pytest.MonkeyPatch) -> None:
         EngineSettings()
 
 
-def test_missing_required_config_fails_without_secret_leak(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_missing_required_config_fails_without_secret_leak(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     # Use distinctive secret values unlikely to appear elsewhere
     secret_api_hash = "TELEGRAM_HASH_SECRET_aBcDeF123456"
     monkeypatch.setenv("TELEGRAM_API_HASH", secret_api_hash)
@@ -93,7 +95,9 @@ def test_init_values_override_environment_duplicates(monkeypatch: pytest.MonkeyP
     assert settings.execution_mode == "shadow"
 
 
-def test_live_trading_rejection_without_secret_leak(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_live_trading_rejection_without_secret_leak(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Verify ALLOW_LIVE_TRADING=true rejection does not leak secrets."""
     secret_password = "TRADELOCKER_PASSWORD_XyZ987654321"
     
@@ -114,8 +118,8 @@ def test_live_trading_rejection_without_secret_leak(monkeypatch: pytest.MonkeyPa
     assert secret_password not in exc_str, f"Secret leaked in exception str(): {exc_str}"
     
     captured = capsys.readouterr()
-    assert secret_password not in captured.out, f"Secret leaked in stdout"
-    assert secret_password not in captured.err, f"Secret leaked in stderr"
+    assert secret_password not in captured.out, "Secret leaked in stdout"
+    assert secret_password not in captured.err, "Secret leaked in stderr"
 
 
 def test_database_url_redacted_in_redacted_dict(monkeypatch: pytest.MonkeyPatch) -> None:

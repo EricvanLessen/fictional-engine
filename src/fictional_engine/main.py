@@ -12,9 +12,13 @@ from fictional_engine.observability.json_logging import configure_json_logging
 def main() -> int:
     try:
         settings = get_settings()
-    except ValidationError as e:
+    except ValidationError:
         # Prevent Pydantic from printing validation error details with input values to stderr
-        sys.stderr.write("[CONFIGURATION ERROR] Settings validation failed. Check required environment variables.\n")
+        error_msg = (
+            "[CONFIGURATION ERROR] Settings validation failed. "
+            "Check required environment variables.\n"
+        )
+        sys.stderr.write(error_msg)
         sys.stderr.flush()
         return 1
 

@@ -49,3 +49,35 @@ Telegram update
 ```
 
 The future quality model is advisory-only until walk-forward and shadow-mode evidence supports any policy change.
+
+## M0 quickstart
+
+1. Install Python 3.12.
+2. Create a local env file from `.env.example`.
+3. Install development dependencies:
+
+```bash
+python3 -m pip install -e .[dev]
+```
+
+4. Run all repository checks with one command:
+
+```bash
+make check
+```
+
+Optional local guardrails:
+
+```bash
+pre-commit install
+```
+
+## Container
+
+- Build and run with Docker Compose:
+
+```bash
+docker compose up --build
+```
+
+- The container runs as a non-root user (`app`).

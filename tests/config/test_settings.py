@@ -145,3 +145,36 @@ def test_telegram_session_redacted_in_redacted_dict(monkeypatch: pytest.MonkeyPa
 
     assert redacted["telegram_session_string"] == "***"
     assert sensitive_session not in str(redacted)
+
+
+def test_validation_error_hides_input_values_regression(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression test: Pydantic hide_input_in_errors=True prevents input leakage.
+
+    This test verifies that Pydantic v2 configuration correctly suppresses
+    raw input values from the user-facing exception string representation.
+    Without hide_input_in_errors=True, str(ValidationError) would include
+    raw input values, potentially exposing secrets in logs or error messages.
+    """
+    secret_api_hash = "SUPER_SECRET_TELEGRAM_API_HASH_VALUE_789XYZ"
+    secret_password = "SUPER_SECRET_TRADELOCKER_PASSWORD_012ABC"
+
+    monkeypatch.setenv("TELEGRAM_API_HASH", secret_api_hash)
+    monkeypatch.setenv("TRADELOCKER_PASSWORD", secret_password)
+    # Deliberately omit other required fields to trigger validation error
+    monkeypatch.delenv("TELEGRAM_CHANNEL_ID", raising=False)
+    monkeypatch.delenv("TELEGRAM_API_ID", raising=False)
+
+    with pytest.raises(ValidationError) as exc_info:
+        EngineSettings()
+
+    # The critical check: str(ValidationError) must not leak raw input values
+    # (This is the user-facing representation that might appear in logs/errors)
+    error_str = str(exc_info.value)
+    assert (
+        secret_api_hash not in error_str
+    ), f"Secret TELEGRAM_API_HASH leaked in validation error string: {error_str}"
+    assert (
+        secret_password not in error_str
+    ), f"Secret TRADELOCKER_PASSWORD leaked in validation error string: {error_str}"

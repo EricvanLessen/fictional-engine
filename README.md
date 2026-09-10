@@ -72,6 +72,18 @@ Optional local guardrails:
 pre-commit install
 ```
 
+## M1 replay
+
+M1 adds immutable raw Telegram message storage, message versioning, fixture replay, and an Alembic migration for the raw-message table.
+
+Replay the sanitized sample fixtures into a local SQLite database:
+
+```bash
+fictional-engine-replay fixtures/replay/september-9-m1.json --database-url sqlite:///./data/replay.sqlite3
+```
+
+The replay command applies database migrations, sorts fixture inputs by occurrence timestamp and message order, stores exact duplicates idempotently, and creates linked immutable versions for edited messages.
+
 ## Container
 
 - Build and run with Docker Compose:

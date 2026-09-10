@@ -1,0 +1,11 @@
+services:
+  fictional-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      EXECUTION_MODE: ${EXECUTION_MODE:-shadow}
+      ALLOW_LIVE_TRADING: ${ALLOW_LIVE_TRADING:-false}
+    restart: unless-stopped

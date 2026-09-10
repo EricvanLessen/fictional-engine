@@ -57,6 +57,7 @@ jobs:
       - name: Run replay CLI in built container
         run: |
           mkdir -p "$RUNNER_TEMP/replay-db"
+          chmod 777 "$RUNNER_TEMP/replay-db"
           OUTPUT=$(docker run --rm \
             --entrypoint fictional-engine-replay \
             -v "$PWD/fixtures:/work/fixtures:ro" \

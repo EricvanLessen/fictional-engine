@@ -6,9 +6,9 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from alembic import command
-from alembic.config import Config
 
 from fictional_engine.adapters.persistence.database import build_session_factory
+from fictional_engine.adapters.persistence.migration_support import packaged_alembic_config
 from fictional_engine.adapters.persistence.raw_message_repository import (
     SqlAlchemyRawMessageRepository,
 )
@@ -34,9 +34,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def run_migrations(database_url: str) -> None:
-    config = Config(str(Path(__file__).resolve().parents[3] / "alembic.ini"))
-    config.set_main_option("sqlalchemy.url", database_url)
-    command.upgrade(config, "head")
+    with packaged_alembic_config(database_url) as config:
+        command.upgrade(config, "head")
 
 
 def _summary_payload(summary: ReplaySummary) -> dict[str, object]:

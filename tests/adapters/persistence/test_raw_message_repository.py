@@ -2,11 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from alembic import command
-from alembic.config import Config
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import Session, sessionmaker
 
+from fictional_engine.adapters.persistence.migration_support import packaged_alembic_config
 from fictional_engine.adapters.persistence.raw_message_repository import (
     SqlAlchemyRawMessageRepository,
 )
@@ -54,12 +53,33 @@ def test_duplicate_ingestion_is_idempotent_and_edits_create_new_versions(
 
 
 def test_migration_upgrade_and_downgrade_round_trip(
-    alembic_config: Config, sqlite_database_url: str
+    sqlite_database_url: str,
 ) -> None:
-    command.upgrade(alembic_config, "head")
+    from alembic import command
+
+    with packaged_alembic_config(sqlite_database_url) as config:
+        command.upgrade(config, "head")
 
     engine = create_engine(sqlite_database_url, future=True)
     assert "raw_telegram_message_versions" in inspect(engine).get_table_names()
 
-    command.downgrade(alembic_config, "base")
+    with packaged_alembic_config(sqlite_database_url) as config:
+        command.downgrade(config, "base")
     assert "raw_telegram_message_versions" not in inspect(engine).get_table_names()
+
+
+def test_repository_persists_exact_original_source_payload(
+    migrated_session_factory: sessionmaker[Session],
+    source_payload_regression_fixture_path: Path,
+) -> None:
+    repository = SqlAlchemyRawMessageRepository(migrated_session_factory)
+    envelope = load_fixture_envelopes(source_payload_regression_fixture_path)[0]
+
+    result = repository.ingest_message(envelope.raw_message, envelope.source_payload)
+
+    assert result.inserted is True
+    assert result.stored_message.source_payload == envelope.source_payload
+    assert result.stored_message.source_payload["unknown_scalar"] == "preserve-me"
+    assert result.stored_message.source_payload["unknown_nested_export"] == {
+        "outer": {"inner": [1, 2, {"keep": True}]}
+    }

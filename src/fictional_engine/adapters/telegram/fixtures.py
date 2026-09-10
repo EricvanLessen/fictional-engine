@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -57,26 +58,30 @@ def load_fixture_envelopes(path: Path) -> list[FixtureEnvelope]:
     envelopes = [
         FixtureEnvelope(
             raw_message=record.to_raw_message(index),
-            source_payload=record.model_dump(mode="json"),
+            source_payload=source_payload,
         )
-        for index, record in enumerate(records)
+        for index, (record, source_payload) in enumerate(records)
     ]
     return sorted(envelopes, key=_fixture_sort_key)
 
 
-def _load_fixture_records(path: Path) -> list[FixtureRecord]:
+def _load_fixture_records(path: Path) -> list[tuple[FixtureRecord, dict[str, Any]]]:
     if path.is_dir():
-        records: list[FixtureRecord] = []
+        records: list[tuple[FixtureRecord, dict[str, Any]]] = []
         for file_path in sorted(path.glob("*.json")):
             records.extend(_load_fixture_records(file_path))
         return records
 
     raw_payload = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(raw_payload, list):
-        bundle = FixtureBundle(fixtures=raw_payload)
+        raw_records = raw_payload
     else:
-        bundle = FixtureBundle.model_validate(raw_payload)
-    return bundle.fixtures
+        raw_records = raw_payload["fixtures"]
+
+    return [
+        (FixtureRecord.model_validate(raw_record), deepcopy(raw_record))
+        for raw_record in raw_records
+    ]
 
 
 def _fixture_sort_key(envelope: FixtureEnvelope) -> tuple[object, ...]:

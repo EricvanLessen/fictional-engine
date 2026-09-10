@@ -17,6 +17,7 @@ class EngineSettings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        json_schema_extra={"hide_input": True},
     )
 
     execution_mode: ExecutionMode = "shadow"

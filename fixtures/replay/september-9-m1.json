@@ -1,0 +1,89 @@
+{
+  "fixtures": [
+    {
+      "fixture_id": "result-tp-001",
+      "channel_id": 777000,
+      "message_id": 103,
+      "message_date": "2026-09-09T14:13:00+00:00",
+      "sender_name": "Trading Busters",
+      "channel_title": "Trading Busters Signals",
+      "text": "TP. 🥇",
+      "media_metadata": {},
+      "telegram_metadata": {
+        "source": "sample-messages",
+        "timezone": "UTC"
+      }
+    },
+    {
+      "fixture_id": "orders-initial-001",
+      "channel_id": 777000,
+      "message_id": 101,
+      "message_date": "2026-09-09T12:10:00+00:00",
+      "sender_name": "Trading Busters",
+      "channel_title": "Trading Busters Signals",
+      "text": "Hello traders,\n\nThese are my first orders for today:\n\nInstrument: US30\n\nCronos Markets data:\nSELL STOP\nEntry: 52547.00\nSL: 52832.00 (-2 850.0 pips)\nTP: 52413.00 (1 340.0 pips)\n\nBUY STOP\nEntry: 52829.00\nSL: 52544.00 (-2 850.0 pips)\nTP: 52963.00 (1 340.0 pips)\n\nFunding Dynasty data:\nSELL STOP\nEntry: 52547.00\nSL: 52832.00\nTP: 52413.00\n\nBUY STOP\nEntry: 52829.00\nSL: 52544.00\nTP: 52963.00",
+      "media_metadata": {},
+      "telegram_metadata": {
+        "source": "sample-messages",
+        "timezone": "UTC"
+      }
+    },
+    {
+      "fixture_id": "session-cancel-end-001",
+      "channel_id": 777000,
+      "message_id": 104,
+      "message_date": "2026-09-09T14:14:00+00:00",
+      "sender_name": "Trading Busters",
+      "channel_title": "Trading Busters Signals",
+      "text": "Delete the buy stop order, we are ending today's session here.",
+      "media_metadata": {},
+      "telegram_metadata": {
+        "source": "sample-messages",
+        "timezone": "UTC"
+      }
+    },
+    {
+      "fixture_id": "orders-initial-001-duplicate",
+      "channel_id": 777000,
+      "message_id": 101,
+      "message_date": "2026-09-09T12:10:00+00:00",
+      "sender_name": "Trading Busters",
+      "channel_title": "Trading Busters Signals",
+      "text": "Hello traders,\n\nThese are my first orders for today:\n\nInstrument: US30\n\nCronos Markets data:\nSELL STOP\nEntry: 52547.00\nSL: 52832.00 (-2 850.0 pips)\nTP: 52413.00 (1 340.0 pips)\n\nBUY STOP\nEntry: 52829.00\nSL: 52544.00 (-2 850.0 pips)\nTP: 52963.00 (1 340.0 pips)\n\nFunding Dynasty data:\nSELL STOP\nEntry: 52547.00\nSL: 52832.00\nTP: 52413.00\n\nBUY STOP\nEntry: 52829.00\nSL: 52544.00\nTP: 52963.00",
+      "media_metadata": {},
+      "telegram_metadata": {
+        "source": "sample-messages",
+        "timezone": "UTC"
+      }
+    },
+    {
+      "fixture_id": "orders-trigger-replace-001-edit",
+      "channel_id": 777000,
+      "message_id": 102,
+      "message_date": "2026-09-09T12:37:00+00:00",
+      "edit_date": "2026-09-09T12:38:00+00:00",
+      "sender_name": "Trading Busters",
+      "channel_title": "Trading Busters Signals",
+      "text": "The sell stop order was triggered.\nDelete the buy stop order.\n\nI've placed a new buy stop:\n\nCronosMarkets data:\nBUY STOP Order\nEntry: 52832.00\nSL: 52547.00 (-2 850.0 pips)\nTP: 52893.00 (610.0 pips)\n\nFunding Dynasty data:\nBUY STOP Order\nEntry: 52832.00\nSL: 52547.00\nTP: 52893.00\n\nEdited: corrected provider spacing.",
+      "media_metadata": {},
+      "telegram_metadata": {
+        "source": "sample-messages",
+        "timezone": "UTC"
+      }
+    },
+    {
+      "fixture_id": "orders-trigger-replace-001",
+      "channel_id": 777000,
+      "message_id": 102,
+      "message_date": "2026-09-09T12:37:00+00:00",
+      "sender_name": "Trading Busters",
+      "channel_title": "Trading Busters Signals",
+      "text": "The sell stop order was triggered.\nDelete the buy stop order.\n\nI've placed a new buy stop:\n\nCronosMarkets data:\nBUY STOP Order\nEntry: 52832.00\nSL: 52547.00 (-2 850.0 pips)\nTP: 52893.00 (610.0 pips)\n\nFunding Dynasty data:\nBUY STOP Order\nEntry: 52832.00\nSL: 52547.00\nTP: 52893.00",
+      "media_metadata": {},
+      "telegram_metadata": {
+        "source": "sample-messages",
+        "timezone": "UTC"
+      }
+    }
+  ]
+}

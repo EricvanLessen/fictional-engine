@@ -9,8 +9,10 @@ description = "Stateful Telegram-to-TradeLocker trading engine"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+  "alembic>=1.13,<2.0",
   "pydantic>=2.9,<3.0",
   "pydantic-settings>=2.5,<3.0",
+  "sqlalchemy>=2.0,<3.0",
 ]
 
 [project.optional-dependencies]
@@ -24,6 +26,7 @@ dev = [
 
 [project.scripts]
 fictional-engine = "fictional_engine.main:main"
+fictional-engine-replay = "fictional_engine.application.replay_cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

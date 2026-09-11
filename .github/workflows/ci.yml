@@ -53,3 +53,23 @@ jobs:
           fi
           
           echo "✓ Container verified to run as non-root user: $RUNTIME_USER"
+
+      - name: Run replay CLI in built container
+        run: |
+          mkdir -p "$RUNNER_TEMP/replay-db"
+          chmod 777 "$RUNNER_TEMP/replay-db"
+          OUTPUT=$(docker run --rm \
+            --entrypoint fictional-engine-replay \
+            -v "$PWD/fixtures:/work/fixtures:ro" \
+            -v "$RUNNER_TEMP/replay-db:/work/data" \
+            fictional-engine:latest \
+            /work/fixtures/replay/september-9-m1.json \
+            --database-url sqlite:////work/data/replay.sqlite3)
+          echo "$OUTPUT"
+          case "$OUTPUT" in
+            *'"inserted_versions": 5'* ) ;;
+            * )
+              echo "ERROR: replay CLI did not produce the expected summary"
+              exit 1
+              ;;
+          esac

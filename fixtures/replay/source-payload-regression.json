@@ -1,0 +1,26 @@
+{
+  "fixtures": [
+    {
+      "fixture_id": "source-payload-regression-001",
+      "channel_id": 777000,
+      "message_id": 501,
+      "message_date": "2026-09-10T08:00:00+00:00",
+      "sender_name": "Trading Busters",
+      "channel_title": "Trading Busters Signals",
+      "text": "Regression payload preservation sample",
+      "media_metadata": {
+        "kind": "document"
+      },
+      "telegram_metadata": {
+        "source": "sample-messages",
+        "timezone": "UTC"
+      },
+      "unknown_nested_export": {
+        "outer": {
+          "inner": [1, 2, {"keep": true}]
+        }
+      },
+      "unknown_scalar": "preserve-me"
+    }
+  ]
+}

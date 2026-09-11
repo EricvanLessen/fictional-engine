@@ -22,7 +22,9 @@ from fictional_engine.domain.parsing import (
     ParseStatus,
     PendingOrderType,
     PlacePendingOrder,
+    RecordTradeResult,
     RequestManualReview,
+    ResultKind,
     TradeSide,
 )
 
@@ -83,6 +85,18 @@ TP_ONLY_PATTERN: Final[re.Pattern[str]] = re.compile(
 )
 SL_ONLY_PATTERN: Final[re.Pattern[str]] = re.compile(r"^sl\.?\s*$", re.IGNORECASE)
 BREAK_EVEN_PATTERN: Final[re.Pattern[str]] = re.compile(r"break[- ]?even", re.IGNORECASE)
+
+TRIGGER_LINE_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"the\s+(?P<side>buy|sell)\s*stop\s+order\s+was\s+triggered", re.IGNORECASE
+)
+DELETE_ORDER_LINE_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"delete\s+the\s+(?P<side>buy|sell)\s*stop\s+order", re.IGNORECASE
+)
+SESSION_END_LINE_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"(we\s+are\s+ending\s+today(?:'|\"|\\u2019)s\s+session|end\s+session|session\s+end)",
+    re.IGNORECASE,
+)
+BREAK_EVEN_LINE_PATTERN: Final[re.Pattern[str]] = re.compile(r"break[- ]?even", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -173,7 +187,19 @@ class DeterministicMessageParser:
 
         parsed_provider_blocks = _parse_provider_blocks(text, lines)
         if parsed_provider_blocks:
-            if not self._provider_blocks_compatible(parsed_provider_blocks):
+            selected_blocks = self._select_provider_blocks(parsed_provider_blocks)
+            if self._preferred_provider is not None and not selected_blocks:
+                return self._manual_review(
+                    source,
+                    classification,
+                    "configured provider is missing from message",
+                    details="preferred provider block not found",
+                    evidence=tuple(self._collect_provider_evidence(parsed_provider_blocks)),
+                    provider_blocks=tuple(self._to_provider_blocks(parsed_provider_blocks)),
+                )
+            if self._preferred_provider is None and not self._provider_blocks_compatible(
+                parsed_provider_blocks
+            ):
                 return self._manual_review(
                     source,
                     classification,
@@ -181,7 +207,6 @@ class DeterministicMessageParser:
                     evidence=tuple(self._collect_provider_evidence(parsed_provider_blocks)),
                     provider_blocks=tuple(self._to_provider_blocks(parsed_provider_blocks)),
                 )
-            selected_blocks = self._select_provider_blocks(parsed_provider_blocks)
             for block in selected_blocks:
                 evidence.extend(block.evidence)
                 events.extend(_order_events_from_block(block))
@@ -233,9 +258,7 @@ class DeterministicMessageParser:
             )
 
         status = ParseStatus.PROPOSED
-        if any(
-            isinstance(event, PlacePendingOrder) and event.instrument is None for event in events
-        ):
+        if any(_event_requires_context(event) for event in events):
             status = ParseStatus.CONTEXT_REQUIRED
 
         return self._result(
@@ -296,8 +319,7 @@ class DeterministicMessageParser:
             selected = [
                 block for block in provider_blocks if block.provider == self._preferred_provider
             ]
-            if selected:
-                return selected
+            return selected
         return [provider_blocks[0]]
 
     def _collect_provider_evidence(
@@ -327,10 +349,9 @@ def _parse_message_status_events(text: str, lines: list[LineSpan]) -> _StatusPar
     events: list[ParsedEvent] = []
     manual_review: _ManualReview | None = None
 
-    trigger_match = TRIGGER_PATTERN.search(normalized)
-    if trigger_match is not None:
-        span = _span_for_match(text, trigger_match)
-        if span is not None:
+    for line in lines:
+        for trigger_match in TRIGGER_LINE_PATTERN.finditer(line.text):
+            span = _span_for_line_match(line, trigger_match)
             evidence.append(span)
             side = TradeSide(trigger_match.group("side").upper())
             events.append(
@@ -341,12 +362,14 @@ def _parse_message_status_events(text: str, lines: list[LineSpan]) -> _StatusPar
                 )
             )
 
-    delete_matches = list(DELETE_ORDER_PATTERN.finditer(normalized))
+    delete_matches: list[tuple[LineSpan, re.Match[str]]] = []
+    for line in lines:
+        delete_matches.extend(
+            (line, match) for match in DELETE_ORDER_LINE_PATTERN.finditer(line.text)
+        )
     if delete_matches:
-        for match in delete_matches:
-            span = _span_for_match(text, match)
-            if span is None:
-                continue
+        for line, match in delete_matches:
+            span = _span_for_line_match(line, match)
             side = TradeSide(match.group("side").upper())
             evidence.append(span)
             events.append(
@@ -363,27 +386,49 @@ def _parse_message_status_events(text: str, lines: list[LineSpan]) -> _StatusPar
             evidence=tuple(_all_matching_spans(lines, "delete")),
         )
 
-    if SESSION_END_PATTERN.search(normalized):
-        matches = list(SESSION_END_PATTERN.finditer(normalized))
-        for match in matches:
-            span = _span_for_match(text, match)
-            if span is not None:
-                evidence.append(span)
-        events.append(EndSession(evidence=tuple(evidence[-1:]) if evidence else tuple()))
+    end_spans: list[EvidenceSpan] = []
+    for line in lines:
+        for match in SESSION_END_LINE_PATTERN.finditer(line.text):
+            span = _span_for_line_match(line, match)
+            evidence.append(span)
+            end_spans.append(span)
+    if end_spans:
+        events.append(EndSession(evidence=tuple(end_spans)))
 
-    if not events and TP_ONLY_PATTERN.match(normalized):
+    if TP_ONLY_PATTERN.match(normalized):
         span = EvidenceSpan(start=0, end=len(text), text=text, label="status")
-        manual_review = _ManualReview(
-            reason="tp instruction requires position context",
-            details="M3 reference resolution not yet implemented",
-            evidence=(span,),
+        evidence.append(span)
+        events.append(
+            RecordTradeResult(
+                result_kind=ResultKind.TP,
+                target=None,
+                evidence=(span,),
+            )
         )
 
-    if not events and BREAK_EVEN_PATTERN.search(normalized):
-        manual_review = _ManualReview(
-            reason="break-even instruction requires position context",
-            details="M3 reference resolution not yet implemented",
-            evidence=tuple(_all_matching_spans(lines, "break")),
+    if SL_ONLY_PATTERN.match(normalized):
+        span = EvidenceSpan(start=0, end=len(text), text=text, label="status")
+        evidence.append(span)
+        events.append(
+            RecordTradeResult(
+                result_kind=ResultKind.SL,
+                target=None,
+                evidence=(span,),
+            )
+        )
+
+    break_even_spans: list[EvidenceSpan] = []
+    for line in lines:
+        for match in BREAK_EVEN_LINE_PATTERN.finditer(line.text):
+            break_even_spans.append(_span_for_line_match(line, match))
+    if break_even_spans:
+        evidence.extend(break_even_spans)
+        events.append(
+            RecordTradeResult(
+                result_kind=ResultKind.BREAK_EVEN,
+                target=None,
+                evidence=tuple(break_even_spans),
+            )
         )
 
     return _StatusParseResult(
@@ -599,12 +644,12 @@ def _first_match_span(text: str, pattern: re.Pattern[str]) -> EvidenceSpan | Non
     return EvidenceSpan(start=0, end=len(text), text=text, label="classification")
 
 
-def _span_for_match(text: str, match: re.Match[str]) -> EvidenceSpan | None:
-    start = match.start()
-    end = match.end()
-    if start < 0 or end < 0:
-        return None
-    return EvidenceSpan(start=start, end=end, text=text[start:end], label="status")
+def _span_for_line_match(line: LineSpan, match: re.Match[str]) -> EvidenceSpan:
+    start = line.start + match.start()
+    end = line.start + match.end()
+    return EvidenceSpan(
+        start=start, end=end, text=line.text[match.start() : match.end()], label="status"
+    )
 
 
 def _all_matching_spans(lines: list[LineSpan], needle: str) -> tuple[EvidenceSpan, ...]:
@@ -681,3 +726,11 @@ def _sort_events_by_evidence(events: list[ParsedEvent]) -> list[ParsedEvent]:
         return (10**9, index)
 
     return [event for _, event in sorted(indexed_events, key=sort_key)]
+
+
+def _event_requires_context(event: ParsedEvent) -> bool:
+    if isinstance(event, PlacePendingOrder):
+        return event.instrument is None
+    if isinstance(event, RecordTradeResult):
+        return event.target is None
+    return False

@@ -70,12 +70,7 @@ def test_replay_cli_runs_from_installed_wheel_runtime(
     )
 
     assert (
-        installed_dir
-        / "fictional_engine"
-        / "adapters"
-        / "persistence"
-        / "migrations"
-        / "env.py"
+        installed_dir / "fictional_engine" / "adapters" / "persistence" / "migrations" / "env.py"
     ).exists()
 
     command = (

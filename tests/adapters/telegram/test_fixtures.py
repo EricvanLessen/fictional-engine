@@ -48,6 +48,6 @@ def test_fixture_loader_preserves_original_unknown_payload_fields(
         "text": "Regression payload preservation sample",
         "media_metadata": {"kind": "document"},
         "telegram_metadata": {"source": "sample-messages", "timezone": "UTC"},
-        "unknown_nested_export": {"outer": {"inner": [1, 2, {"keep": True}]}} ,
+        "unknown_nested_export": {"outer": {"inner": [1, 2, {"keep": True}]}},
         "unknown_scalar": "preserve-me",
     }

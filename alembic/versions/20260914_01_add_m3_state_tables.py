@@ -39,6 +39,30 @@ def upgrade() -> None:
     op.create_index(op.f("ix_sessions_session_date"), "sessions", ["session_date"], unique=False)
 
     op.create_table(
+        "no_trading_days",
+        sa.Column("id", sa.String(length=36), nullable=False),
+        sa.Column("channel_id", sa.Integer(), nullable=False),
+        sa.Column("session_date", sa.Date(), nullable=False),
+        sa.Column("source_event_key", sa.Text(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint(
+            "channel_id",
+            "session_date",
+            name="uq_no_trading_day_channel_date",
+        ),
+    )
+    op.create_index(
+        op.f("ix_no_trading_days_channel_id"), "no_trading_days", ["channel_id"], unique=False
+    )
+    op.create_index(
+        op.f("ix_no_trading_days_session_date"),
+        "no_trading_days",
+        ["session_date"],
+        unique=False,
+    )
+
+    op.create_table(
         "orders",
         sa.Column("id", sa.String(length=36), nullable=False),
         sa.Column("session_id", sa.String(length=36), nullable=False),
@@ -156,6 +180,9 @@ def upgrade() -> None:
         sa.Column("session_id", sa.String(length=36), nullable=True),
         sa.Column("order_id", sa.String(length=36), nullable=True),
         sa.Column("position_id", sa.String(length=36), nullable=True),
+        sa.Column("depends_on_command_id", sa.String(length=36), nullable=True),
+        sa.Column("released_at", sa.DateTime(timezone=True), nullable=True),
+        sa.ForeignKeyConstraint(["depends_on_command_id"], ["command_outbox.id"]),
         sa.ForeignKeyConstraint(["order_id"], ["orders.id"]),
         sa.ForeignKeyConstraint(["position_id"], ["positions.id"]),
         sa.ForeignKeyConstraint(["session_id"], ["sessions.id"]),
@@ -170,6 +197,9 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index("ix_command_outbox_state", table_name="command_outbox")
     op.drop_table("command_outbox")
+    op.drop_index(op.f("ix_no_trading_days_session_date"), table_name="no_trading_days")
+    op.drop_index(op.f("ix_no_trading_days_channel_id"), table_name="no_trading_days")
+    op.drop_table("no_trading_days")
     op.drop_index(op.f("ix_manual_reviews_message_id"), table_name="manual_reviews")
     op.drop_index(op.f("ix_manual_reviews_channel_id"), table_name="manual_reviews")
     op.drop_table("manual_reviews")

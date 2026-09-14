@@ -76,6 +76,19 @@ class SessionRecord(Base):
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class NoTradingDayRecord(Base):
+    __tablename__ = "no_trading_days"
+    __table_args__ = (
+        UniqueConstraint("channel_id", "session_date", name="uq_no_trading_day_channel_date"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    channel_id: Mapped[int] = mapped_column(index=True)
+    session_date: Mapped[date] = mapped_column(Date(), nullable=False, index=True)
+    source_event_key: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class OrderRecord(Base):
     __tablename__ = "orders"
     __table_args__ = (
@@ -185,3 +198,7 @@ class CommandOutboxRecord(Base):
     position_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("positions.id"), nullable=True
     )
+    depends_on_command_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("command_outbox.id"), nullable=True
+    )
+    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

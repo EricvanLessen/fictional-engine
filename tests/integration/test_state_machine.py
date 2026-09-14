@@ -3,6 +3,7 @@ from __future__ import annotations
 import socket
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 from sqlalchemy import inspect
@@ -25,7 +26,13 @@ from fictional_engine.application.state_machine import (
 )
 from fictional_engine.domain.parsing import MessageClassification
 from fictional_engine.domain.raw_messages import RawTelegramMessage
-from fictional_engine.domain.state import BrokerCommandType, OrderState, PositionState, SessionState
+from fictional_engine.domain.state import (
+    BrokerCommandType,
+    OrderState,
+    OutboxCommandState,
+    PositionState,
+    SessionState,
+)
 
 INITIAL_ORDERS_TEXT = """Hello traders,
 
@@ -101,6 +108,8 @@ BUY STOP
 Entry: 52860.00
 SL: 52575.00
 TP: 52995.00"""
+NO_TRADING_TEXT = """Today we have bank holiday in USA.
+We will not trade today. See you back tomorrow."""
 
 
 def _build_processor(
@@ -512,6 +521,216 @@ def test_replacement_placement_is_blocked_when_cancellation_is_unresolved(
         == 3
     )
     assert sum(order.state == OrderState.PENDING for order in repository.list_orders()) == 2
+
+
+def test_no_trading_day_persists_and_blocks_entries_after_restart(
+    migrated_session_factory: sessionmaker[Session],
+) -> None:
+    first_processor, _ = _build_processor(migrated_session_factory)
+    first_processor.process_raw_message(
+        _raw_message(
+            NO_TRADING_TEXT,
+            message_id=901,
+            message_date=datetime(2026, 9, 10, 7, 0, tzinfo=UTC),
+        ),
+        {"fixture_id": "no-trading"},
+    )
+
+    second_processor, repository = _build_processor(migrated_session_factory)
+    second_processor.process_raw_message(
+        _raw_message(
+            FOLLOW_UP_PLACE_TEXT,
+            message_id=902,
+            message_date=datetime(2026, 9, 10, 8, 0, tzinfo=UTC),
+        ),
+        {"fixture_id": "follow-up-place"},
+    )
+
+    assert repository.list_sessions() == []
+    assert repository.list_orders() == []
+    assert repository.list_outbox_commands() == []
+    assert [review.reason for review in repository.list_manual_reviews()] == [
+        "session does not accept new entries"
+    ]
+
+
+def test_replacement_placement_waits_for_cancellation_success(
+    migrated_session_factory: sessionmaker[Session],
+) -> None:
+    processor, repository = _build_processor(migrated_session_factory)
+    processor.process_raw_message(
+        _raw_message(
+            INITIAL_ORDERS_TEXT,
+            message_id=910,
+            message_date=datetime(2026, 9, 9, 12, 10, tzinfo=UTC),
+        ),
+        {"fixture_id": "initial"},
+    )
+    processor.process_raw_message(
+        _raw_message(
+            TRIGGER_REPLACE_TEXT,
+            message_id=911,
+            message_date=datetime(2026, 9, 9, 12, 37, tzinfo=UTC),
+        ),
+        {"fixture_id": "trigger-replace"},
+    )
+
+    commands = repository.list_outbox_commands()
+    cancel_command = next(
+        command
+        for command in commands
+        if command.command_type == BrokerCommandType.CANCEL_PENDING_ORDER
+    )
+    blocked_place = next(
+        command
+        for command in commands
+        if command.command_type == BrokerCommandType.PLACE_PENDING_ORDER
+        and command.depends_on_command_id == cancel_command.id
+    )
+
+    assert blocked_place.state == OutboxCommandState.BLOCKED
+
+    assert repository.update_outbox_command_state(
+        cancel_command.id,
+        OutboxCommandState.PENDING,
+    ) == ()
+    blocked_place_after_pending = next(
+        command for command in repository.list_outbox_commands() if command.id == blocked_place.id
+    )
+    assert blocked_place_after_pending.state == OutboxCommandState.BLOCKED
+
+    assert (
+        repository.update_outbox_command_state(cancel_command.id, OutboxCommandState.UNKNOWN)
+        == ()
+    )
+    blocked_place_after_unknown = next(
+        command for command in repository.list_outbox_commands() if command.id == blocked_place.id
+    )
+    assert blocked_place_after_unknown.state == OutboxCommandState.BLOCKED
+
+    assert (
+        repository.update_outbox_command_state(cancel_command.id, OutboxCommandState.FAILED)
+        == ()
+    )
+    blocked_place_after_failed = next(
+        command for command in repository.list_outbox_commands() if command.id == blocked_place.id
+    )
+    assert blocked_place_after_failed.state == OutboxCommandState.BLOCKED
+
+    released = repository.update_outbox_command_state(
+        cancel_command.id, OutboxCommandState.SUCCEEDED
+    )
+    assert released == (blocked_place.id,)
+
+    blocked_place_after_success = next(
+        command for command in repository.list_outbox_commands() if command.id == blocked_place.id
+    )
+    assert blocked_place_after_success.state == OutboxCommandState.PENDING
+    assert blocked_place_after_success.released_at is not None
+
+    assert (
+        repository.update_outbox_command_state(cancel_command.id, OutboxCommandState.SUCCEEDED)
+        == ()
+    )
+
+
+def test_replacement_dependency_survives_restart_without_duplicate_release(
+    migrated_session_factory: sessionmaker[Session],
+) -> None:
+    first_processor, _ = _build_processor(migrated_session_factory)
+    first_processor.process_raw_message(
+        _raw_message(
+            INITIAL_ORDERS_TEXT,
+            message_id=920,
+            message_date=datetime(2026, 9, 9, 12, 10, tzinfo=UTC),
+        ),
+        {"fixture_id": "initial"},
+    )
+    first_processor.process_raw_message(
+        _raw_message(
+            TRIGGER_REPLACE_TEXT,
+            message_id=921,
+            message_date=datetime(2026, 9, 9, 12, 37, tzinfo=UTC),
+        ),
+        {"fixture_id": "trigger-replace"},
+    )
+
+    second_repository = SqlAlchemyTradingStateRepository(migrated_session_factory)
+    commands = second_repository.list_outbox_commands()
+    cancel_command = next(
+        command
+        for command in commands
+        if command.command_type == BrokerCommandType.CANCEL_PENDING_ORDER
+    )
+    blocked_place = next(
+        command
+        for command in commands
+        if command.command_type == BrokerCommandType.PLACE_PENDING_ORDER
+        and command.depends_on_command_id == cancel_command.id
+    )
+
+    released = second_repository.update_outbox_command_state(
+        cancel_command.id,
+        OutboxCommandState.SUCCEEDED,
+    )
+    assert released == (blocked_place.id,)
+    assert len(second_repository.list_outbox_commands()) == 4
+    assert (
+        second_repository.update_outbox_command_state(
+            cancel_command.id,
+            OutboxCommandState.SUCCEEDED,
+        )
+        == ()
+    )
+    assert len(second_repository.list_outbox_commands()) == 4
+
+
+def test_transactional_rollback_on_persist_failure(
+    migrated_session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    processor, repository = _build_processor(migrated_session_factory)
+    original_persist_mutation = repository._persist_mutation
+
+    def fail_after_persist(
+        session: Session,
+        snapshot: Any,
+        parsed_message: Any,
+        processed_at: datetime,
+        event_identity: Any,
+        event: Any,
+        event_fingerprint: str,
+        mutation: Any,
+    ) -> None:
+        original_persist_mutation(
+            session,
+            snapshot,
+            parsed_message,
+            processed_at,
+            event_identity,
+            event,
+            event_fingerprint,
+            mutation,
+        )
+        raise RuntimeError("injected persistence failure")
+
+    monkeypatch.setattr(repository, "_persist_mutation", fail_after_persist)
+
+    with pytest.raises(RuntimeError, match="injected persistence failure"):
+        processor.process_raw_message(
+            _raw_message(
+                INITIAL_ORDERS_TEXT,
+                message_id=930,
+                message_date=datetime(2026, 9, 9, 12, 10, tzinfo=UTC),
+            ),
+            {"fixture_id": "initial"},
+        )
+
+    assert repository.list_sessions() == []
+    assert repository.list_orders() == []
+    assert repository.list_positions() == []
+    assert repository.list_processed_events() == []
+    assert repository.list_outbox_commands() == []
 
 
 def test_stateful_replay_makes_no_network_calls(

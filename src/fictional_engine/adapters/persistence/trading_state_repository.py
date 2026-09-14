@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from fictional_engine.adapters.persistence.models import (
     CommandOutboxRecord,
     ManualReviewRecordModel,
+    NoTradingDayRecord,
     OrderRecord,
     PositionRecord,
     ProcessedEventRecordModel,
@@ -41,6 +42,7 @@ from fictional_engine.domain.state import (
     EventIdentity,
     ManualReviewRecord,
     MessageProcessingResult,
+    NoTradingDayAggregate,
     OrderAggregate,
     OrderState,
     OutboxCommand,
@@ -53,6 +55,8 @@ from fictional_engine.domain.state import (
     SessionState,
     TradingStateSnapshot,
 )
+
+_MANUAL_REVIEW_DEPENDENCY = "__manual_review_dependency__"
 
 
 @dataclass(frozen=True)
@@ -191,6 +195,44 @@ class SqlAlchemyTradingStateRepository:
             statement = select(CommandOutboxRecord).order_by(CommandOutboxRecord.created_at)
             return [_to_outbox_command(record) for record in session.scalars(statement)]
 
+    def update_outbox_command_state(
+        self,
+        command_id: str,
+        state: OutboxCommandState,
+        *,
+        observed_at: datetime | None = None,
+    ) -> tuple[str, ...]:
+        released_ids: list[str] = []
+        timestamp = observed_at or datetime.now(UTC)
+
+        with self._session_factory() as session:
+            record = session.get(CommandOutboxRecord, command_id)
+            if record is None:
+                raise ValueError(f"command not found: {command_id}")
+
+            record.state = state.value
+
+            if state == OutboxCommandState.SUCCEEDED:
+                blocked_dependents = list(
+                    session.scalars(
+                        select(CommandOutboxRecord)
+                        .where(
+                            CommandOutboxRecord.depends_on_command_id == command_id,
+                            CommandOutboxRecord.state == OutboxCommandState.BLOCKED.value,
+                        )
+                        .order_by(CommandOutboxRecord.created_at, CommandOutboxRecord.id)
+                    )
+                )
+                for dependent in blocked_dependents:
+                    dependent.state = OutboxCommandState.PENDING.value
+                    dependent.released_at = timestamp
+                    released_ids.append(dependent.id)
+
+            session.commit()
+
+        return tuple(released_ids)
+
+
     def _apply_prior_version_guard(
         self,
         session: Session,
@@ -292,6 +334,8 @@ class SqlAlchemyTradingStateRepository:
                     session_id=command.session_id,
                     order_id=command.order_id,
                     position_id=command.position_id,
+                    depends_on_command_id=command.depends_on_command_id,
+                    released_at=command.released_at,
                 )
             )
 
@@ -357,11 +401,8 @@ class SqlAlchemyTradingStateRepository:
         event: PlacePendingOrder,
         prior_results: list[AppliedEventResult],
     ) -> _EventMutation:
-        if event.instrument is None and any(
-            result.event_type == BrokerCommandType.CANCEL_PENDING_ORDER.value
-            and result.outcome == ProcessedEventOutcome.MANUAL_REVIEW
-            for result in prior_results
-        ):
+        dependency_command_id = self._resolve_replacement_dependency(prior_results)
+        if dependency_command_id == _MANUAL_REVIEW_DEPENDENCY:
             return _EventMutation(
                 outcome=ProcessedEventOutcome.MANUAL_REVIEW,
                 manual_review=_build_manual_review(
@@ -369,6 +410,20 @@ class SqlAlchemyTradingStateRepository:
                     processed_at=processed_at,
                     reason="replacement placement blocked until cancellation is resolved",
                     details="pending-order cancellation outcome is unresolved",
+                ),
+            )
+
+        if snapshot.has_no_trading_day(
+            channel_id=parsed_message.source.channel_id,
+            session_date=processed_at.astimezone(UTC).date(),
+        ):
+            return _EventMutation(
+                outcome=ProcessedEventOutcome.MANUAL_REVIEW,
+                manual_review=_build_manual_review(
+                    event_identity=event_identity,
+                    processed_at=processed_at,
+                    reason="session does not accept new entries",
+                    details=SessionState.NO_TRADING.value,
                 ),
             )
 
@@ -451,10 +506,15 @@ class SqlAlchemyTradingStateRepository:
                         "stop_loss": str(event.stop_loss),
                         "take_profits": [str(value) for value in event.take_profits],
                     },
-                    state=OutboxCommandState.PENDING,
+                    state=(
+                        OutboxCommandState.BLOCKED
+                        if dependency_command_id is not None
+                        else OutboxCommandState.PENDING
+                    ),
                     created_at=processed_at,
                     session_id=session.id,
                     order_id=order.id,
+                    depends_on_command_id=dependency_command_id,
                 ),
             ),
         )
@@ -626,12 +686,48 @@ class SqlAlchemyTradingStateRepository:
         processed_at: datetime,
         event_identity: EventIdentity,
     ) -> _EventMutation:
-        if len(snapshot.sessions) == 1:
-            target_session = snapshot.sessions[0]
-            target_session.state = SessionState.NO_TRADING
-            target_session.updated_at = processed_at
-            return _EventMutation(outcome=ProcessedEventOutcome.APPLIED)
-        return _EventMutation(outcome=ProcessedEventOutcome.NOOP)
+        session_date = processed_at.astimezone(UTC).date()
+        if snapshot.has_no_trading_day(
+            channel_id=parsed_message.source.channel_id,
+            session_date=session_date,
+        ):
+            return _EventMutation(outcome=ProcessedEventOutcome.NOOP)
+
+        snapshot.no_trading_days.append(
+            NoTradingDayAggregate(
+                id=str(uuid4()),
+                channel_id=parsed_message.source.channel_id,
+                session_date=session_date,
+                source_event_key=event_identity.key,
+                created_at=processed_at,
+            )
+        )
+        for session in snapshot.sessions:
+            if session.state in {SessionState.ACCEPTING_SIGNALS, SessionState.ENDING}:
+                session.state = SessionState.NO_TRADING
+                session.updated_at = processed_at
+
+        return _EventMutation(outcome=ProcessedEventOutcome.APPLIED)
+
+    @staticmethod
+    def _resolve_replacement_dependency(
+        prior_results: Sequence[AppliedEventResult],
+    ) -> str | None:
+        cancel_result = next(
+            (
+                result
+                for result in reversed(prior_results)
+                if result.event_type == BrokerCommandType.CANCEL_PENDING_ORDER.value
+            ),
+            None,
+        )
+        if cancel_result is None:
+            return None
+        if cancel_result.outcome != ProcessedEventOutcome.APPLIED:
+            return _MANUAL_REVIEW_DEPENDENCY
+        if len(cancel_result.outbox_command_ids) != 1:
+            return _MANUAL_REVIEW_DEPENDENCY
+        return cancel_result.outbox_command_ids[0]
 
     def _resolve_or_create_session(
         self,
@@ -679,6 +775,14 @@ class SqlAlchemyTradingStateRepository:
     def _load_snapshot(
         self, session: Session, channel_id: int, session_date: date
     ) -> TradingStateSnapshot:
+        no_trading_day_records = list(
+            session.scalars(
+                select(NoTradingDayRecord).where(
+                    NoTradingDayRecord.channel_id == channel_id,
+                    NoTradingDayRecord.session_date == session_date,
+                )
+            )
+        )
         session_records = list(
             session.scalars(
                 select(SessionRecord)
@@ -714,6 +818,9 @@ class SqlAlchemyTradingStateRepository:
         )
         return TradingStateSnapshot(
             sessions=[_to_session(record) for record in session_records],
+            no_trading_days=[
+                _to_no_trading_day(record) for record in no_trading_day_records
+            ],
             orders=[_to_order(record) for record in order_records],
             positions=[_to_position(record) for record in position_records],
         )
@@ -738,6 +845,19 @@ class SqlAlchemyTradingStateRepository:
                 existing_session.state = session_item.state.value
                 existing_session.updated_at = session_item.updated_at
                 existing_session.ended_at = session_item.ended_at
+
+        for no_trading_day_item in snapshot.no_trading_days:
+            existing_no_trading_day = session.get(NoTradingDayRecord, no_trading_day_item.id)
+            if existing_no_trading_day is None:
+                session.add(
+                    NoTradingDayRecord(
+                        id=no_trading_day_item.id,
+                        channel_id=no_trading_day_item.channel_id,
+                        session_date=no_trading_day_item.session_date,
+                        source_event_key=no_trading_day_item.source_event_key,
+                        created_at=no_trading_day_item.created_at,
+                    )
+                )
 
         for order_item in snapshot.orders:
             existing_order = session.get(OrderRecord, order_item.id)
@@ -883,6 +1003,16 @@ def _to_session(record: SessionRecord) -> SessionAggregate:
     )
 
 
+def _to_no_trading_day(record: NoTradingDayRecord) -> NoTradingDayAggregate:
+    return NoTradingDayAggregate(
+        id=record.id,
+        channel_id=record.channel_id,
+        session_date=record.session_date,
+        source_event_key=record.source_event_key,
+        created_at=record.created_at,
+    )
+
+
 def _to_order(record: OrderRecord) -> OrderAggregate:
     return OrderAggregate(
         id=record.id,
@@ -961,4 +1091,6 @@ def _to_outbox_command(record: CommandOutboxRecord) -> OutboxCommand:
         session_id=record.session_id,
         order_id=record.order_id,
         position_id=record.position_id,
+        depends_on_command_id=record.depends_on_command_id,
+        released_at=record.released_at,
     )

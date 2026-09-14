@@ -45,7 +45,11 @@ class BrokerCommandType(StrEnum):
 
 
 class OutboxCommandState(StrEnum):
+    BLOCKED = "BLOCKED"
     PENDING = "PENDING"
+    SUCCEEDED = "SUCCEEDED"
+    UNKNOWN = "UNKNOWN"
+    FAILED = "FAILED"
 
 
 @dataclass(frozen=True)
@@ -70,6 +74,15 @@ class SessionAggregate:
     created_at: datetime
     updated_at: datetime
     ended_at: datetime | None = None
+
+
+@dataclass
+class NoTradingDayAggregate:
+    id: str
+    channel_id: int
+    session_date: date
+    source_event_key: str
+    created_at: datetime
 
 
 @dataclass
@@ -146,6 +159,8 @@ class OutboxCommand:
     session_id: str | None = None
     order_id: str | None = None
     position_id: str | None = None
+    depends_on_command_id: str | None = None
+    released_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -167,8 +182,15 @@ class MessageProcessingResult:
 @dataclass
 class TradingStateSnapshot:
     sessions: list[SessionAggregate] = field(default_factory=list)
+    no_trading_days: list[NoTradingDayAggregate] = field(default_factory=list)
     orders: list[OrderAggregate] = field(default_factory=list)
     positions: list[PositionAggregate] = field(default_factory=list)
+
+    def has_no_trading_day(self, *, channel_id: int, session_date: date) -> bool:
+        return any(
+            item.channel_id == channel_id and item.session_date == session_date
+            for item in self.no_trading_days
+        )
 
     def pending_orders(self) -> list[OrderAggregate]:
         return [order for order in self.orders if order.state == OrderState.PENDING]

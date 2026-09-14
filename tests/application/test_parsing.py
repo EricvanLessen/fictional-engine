@@ -9,6 +9,7 @@ import pytest
 from fictional_engine.application.parsing import DeterministicMessageParser
 from fictional_engine.domain.parsing import (
     CancelPendingOrder,
+    ClosePosition,
     EndSession,
     MarkOrderTriggered,
     MessageClassification,
@@ -94,7 +95,7 @@ TP_TEXT = "TP. 🥇"
 SL_TEXT = "SL."
 BREAK_EVEN_TEXT = "Move to break-even now"
 AMBIGUOUS_DELETE_TEXT = "Delete the order."
-DELETE_AND_END_TEXT = "Delete the buy stop order, we are ending today's session here."
+DELETE_AND_END_TEXT = "Delete the buy stop order, we are ending today\u2019s session here."
 MISSING_FIELD_TEXT = """Instrument: US30
 
 Cronos Markets data:
@@ -448,14 +449,22 @@ def test_break_even_message_emits_context_required_trade_result(
 
 def test_delete_and_session_end_yields_ordered_events(parser: DeterministicMessageParser) -> None:
     result = parser.parse(build_source(DELETE_AND_END_TEXT, message_id=114))
+    source_text = DELETE_AND_END_TEXT
 
     assert result.classification == MessageClassification.SESSION_CONTROL
     assert result.status == ParseStatus.PROPOSED
     assert [type(event) for event in result.events] == [CancelPendingOrder, EndSession]
+    assert not any(isinstance(event, ClosePosition) for event in result.events)
     cancel_event = result.events[0]
     assert isinstance(cancel_event, CancelPendingOrder)
     assert cancel_event.side == TradeSide.BUY
     assert cancel_event.order_type == PendingOrderType.STOP
+
+    for span in result.evidence:
+        assert source_text[span.start : span.end] == span.text
+    for event in result.events:
+        for span in event.evidence:
+            assert source_text[span.start : span.end] == span.text
 
 
 def test_ambiguous_delete_message_requires_manual_review(

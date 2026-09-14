@@ -61,8 +61,11 @@ TRIGGER_PATTERN: Final[re.Pattern[str]] = re.compile(
 DELETE_ORDER_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"delete\s+the\s+(?P<side>buy|sell)\s*stop\s+order", re.IGNORECASE
 )
+SESSION_END_PATTERN_SOURCE = (
+    "(we\\s+are\\s+ending\\s+today(?:'|\"|\u2019)s\\s+session|end\\s+session|session\\s+end)"
+)
 SESSION_END_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r"(we\s+are\s+ending\s+today['\"]s\s+session|end\s+session|session\s+end)",
+    SESSION_END_PATTERN_SOURCE,
     re.IGNORECASE,
 )
 NO_TRADING_PATTERN: Final[re.Pattern[str]] = re.compile(
@@ -93,7 +96,7 @@ DELETE_ORDER_LINE_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"delete\s+the\s+(?P<side>buy|sell)\s*stop\s+order", re.IGNORECASE
 )
 SESSION_END_LINE_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r"(we\s+are\s+ending\s+today(?:'|\"|\\u2019)s\s+session|end\s+session|session\s+end)",
+    SESSION_END_PATTERN_SOURCE,
     re.IGNORECASE,
 )
 BREAK_EVEN_LINE_PATTERN: Final[re.Pattern[str]] = re.compile(r"break[- ]?even", re.IGNORECASE)

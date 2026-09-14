@@ -6,6 +6,8 @@ __pycache__
 .env
 .env.*
 !.env.example
+.telegram
+secrets
 .venv
 venv
 dist

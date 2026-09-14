@@ -3,10 +3,12 @@
 from .parsing import DeterministicMessageParser
 from .replay import ReplayService
 from .state_machine import StatefulMessageProcessingService, StatefulReplayService
+from .telegram_runtime import TelegramRealtimeProcessingService
 
 __all__ = [
-	"DeterministicMessageParser",
-	"ReplayService",
-	"StatefulMessageProcessingService",
-	"StatefulReplayService",
+    "DeterministicMessageParser",
+    "ReplayService",
+    "StatefulMessageProcessingService",
+    "StatefulReplayService",
+    "TelegramRealtimeProcessingService",
 ]

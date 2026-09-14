@@ -13,6 +13,7 @@ dependencies = [
   "pydantic>=2.9,<3.0",
   "pydantic-settings>=2.5,<3.0",
   "sqlalchemy>=2.0,<3.0",
+  "telethon>=1.36,<1.38",
 ]
 
 [project.optional-dependencies]
@@ -27,6 +28,7 @@ dev = [
 [project.scripts]
 fictional-engine = "fictional_engine.main:main"
 fictional-engine-replay = "fictional_engine.application.replay_cli:main"
+fictional-engine-telegram = "fictional_engine.application.telegram_cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

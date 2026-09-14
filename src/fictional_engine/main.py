@@ -25,6 +25,13 @@ def main() -> int:
     configure_json_logging(settings.log_level)
 
     logger = logging.getLogger("fictional_engine")
+    if settings.execution_mode != "shadow":
+        logger.error(
+            "startup_rejected_non_shadow_execution",
+            extra={"execution_mode": settings.execution_mode},
+        )
+        return 1
+
     logger.info("engine_startup", extra={"settings": settings.redacted_dict()})
     return 0
 

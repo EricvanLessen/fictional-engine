@@ -16,6 +16,9 @@ def clear_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         "TELEGRAM_CHANNEL_ID",
         "TELEGRAM_API_ID",
         "TELEGRAM_API_HASH",
+        "TELEGRAM_PHONE_NUMBER",
+        "TELEGRAM_SESSION_PATH",
+        "TELEGRAM_CATCHUP_LIMIT",
         "TELEGRAM_SESSION_STRING",
         "TRADELOCKER_BASE_URL",
         "TRADELOCKER_USERNAME",
@@ -30,14 +33,10 @@ def clear_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 
 def set_minimum_required_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("TELEGRAM_CHANNEL_ID", "12345")
     monkeypatch.setenv("TELEGRAM_API_ID", "99999")
     monkeypatch.setenv("TELEGRAM_API_HASH", "top-secret-hash")
-    monkeypatch.setenv("TRADELOCKER_BASE_URL", "https://demo.example.com")
-    monkeypatch.setenv("TRADELOCKER_USERNAME", "demo-user")
-    monkeypatch.setenv("TRADELOCKER_PASSWORD", "demo-password")
-    monkeypatch.setenv("TRADELOCKER_ACCOUNT_ID", "acct-1")
-    monkeypatch.setenv("DATABASE_URL", "sqlite:///./local.db")
+    monkeypatch.setenv("TELEGRAM_PHONE_NUMBER", "+1234567")
+    monkeypatch.setenv("TELEGRAM_SESSION_PATH", ".telegram/test-session")
 
 
 def test_defaults_are_safe(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -47,6 +46,8 @@ def test_defaults_are_safe(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert settings.execution_mode == "shadow"
     assert settings.allow_live_trading is False
+    assert settings.telegram_channel_id is None
+    assert settings.telegram_catchup_limit == 200
 
 
 def test_rejects_allow_live_trading(monkeypatch: pytest.MonkeyPatch) -> None:

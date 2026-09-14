@@ -99,6 +99,34 @@ For the September 9 fixture sequence, the state machine:
 
 The transactional outbox persists broker intents atomically with state mutations and processed-event markers so replay and restart do not create duplicate commands.
 
+## M4 Telegram user-session adapter
+
+M4 adds a read-only MTProto adapter with deterministic catch-up and restart-safe processing.
+
+- only the configured channel is processed during listen
+- new and edited messages are stored as immutable versions before parsing
+- only newly inserted versions are parsed and applied to state
+- bounded catch-up with overlap recovers late edits
+- reconnect/backoff and flood-wait paths preserve idempotency
+- runtime is shadow-only and never calls TradeLocker in M4
+
+CLI commands:
+
+```bash
+fictional-engine-telegram login
+fictional-engine-telegram list-dialogs
+fictional-engine-telegram listen
+```
+
+Required Telegram configuration:
+
+- `TELEGRAM_API_ID`
+- `TELEGRAM_API_HASH`
+- `TELEGRAM_PHONE_NUMBER` (login only)
+- `TELEGRAM_SESSION_PATH`
+- `TELEGRAM_CATCHUP_LIMIT`
+- `TELEGRAM_CHANNEL_ID` (required for listen only)
+
 ## Container
 
 - Build and run with Docker Compose:

@@ -212,6 +212,19 @@ class SqlAlchemyTradingStateRepository:
 
             record.state = state.value
 
+            if (
+                record.command_type == BrokerCommandType.CANCEL_PENDING_ORDER.value
+                and record.order_id is not None
+            ):
+                order = session.get(OrderRecord, record.order_id)
+                if order is not None:
+                    order.state = _order_state_from_cancel_command_state(state).value
+                    order.updated_at = timestamp
+                    if state == OutboxCommandState.SUCCEEDED:
+                        order.cancelled_at = timestamp
+                    else:
+                        order.cancelled_at = None
+
             if state == OutboxCommandState.SUCCEEDED:
                 blocked_dependents = list(
                     session.scalars(
@@ -544,8 +557,7 @@ class SqlAlchemyTradingStateRepository:
             )
 
         target = pending_matches[0]
-        target.state = OrderState.CANCELLED
-        target.cancelled_at = processed_at
+        target.state = OrderState.CANCEL_REQUESTED
         target.updated_at = processed_at
         return _EventMutation(
             outcome=ProcessedEventOutcome.APPLIED,
@@ -988,6 +1000,16 @@ def _position_state_from_result_kind(result_kind: ResultKind) -> PositionState:
     if result_kind == ResultKind.SL:
         return PositionState.CLOSED_SL
     return PositionState.CLOSED_BREAK_EVEN
+
+
+def _order_state_from_cancel_command_state(state: OutboxCommandState) -> OrderState:
+    if state == OutboxCommandState.SUCCEEDED:
+        return OrderState.CANCELLED
+    if state == OutboxCommandState.UNKNOWN:
+        return OrderState.CANCEL_UNKNOWN
+    if state == OutboxCommandState.FAILED:
+        return OrderState.CANCEL_FAILED
+    return OrderState.CANCEL_REQUESTED
 
 
 def _to_session(record: SessionRecord) -> SessionAggregate:

@@ -587,8 +587,18 @@ def test_replacement_placement_waits_for_cancellation_success(
         if command.command_type == BrokerCommandType.PLACE_PENDING_ORDER
         and command.depends_on_command_id == cancel_command.id
     )
+    cancel_target_id = cancel_command.order_id
+    assert cancel_target_id is not None
 
     assert blocked_place.state == OutboxCommandState.BLOCKED
+    assert next(
+        order for order in repository.list_orders() if order.id == cancel_target_id
+    ).state == OrderState.CANCEL_REQUESTED
+
+    restarted_repository = SqlAlchemyTradingStateRepository(migrated_session_factory)
+    assert next(
+        order for order in restarted_repository.list_orders() if order.id == cancel_target_id
+    ).state == OrderState.CANCEL_REQUESTED
 
     assert repository.update_outbox_command_state(
         cancel_command.id,
@@ -598,6 +608,14 @@ def test_replacement_placement_waits_for_cancellation_success(
         command for command in repository.list_outbox_commands() if command.id == blocked_place.id
     )
     assert blocked_place_after_pending.state == OutboxCommandState.BLOCKED
+    assert next(
+        order for order in repository.list_orders() if order.id == cancel_target_id
+    ).state == OrderState.CANCEL_REQUESTED
+
+    restarted_repository = SqlAlchemyTradingStateRepository(migrated_session_factory)
+    assert next(
+        order for order in restarted_repository.list_orders() if order.id == cancel_target_id
+    ).state == OrderState.CANCEL_REQUESTED
 
     assert (
         repository.update_outbox_command_state(cancel_command.id, OutboxCommandState.UNKNOWN)
@@ -607,6 +625,14 @@ def test_replacement_placement_waits_for_cancellation_success(
         command for command in repository.list_outbox_commands() if command.id == blocked_place.id
     )
     assert blocked_place_after_unknown.state == OutboxCommandState.BLOCKED
+    assert next(
+        order for order in repository.list_orders() if order.id == cancel_target_id
+    ).state == OrderState.CANCEL_UNKNOWN
+
+    restarted_repository = SqlAlchemyTradingStateRepository(migrated_session_factory)
+    assert next(
+        order for order in restarted_repository.list_orders() if order.id == cancel_target_id
+    ).state == OrderState.CANCEL_UNKNOWN
 
     assert (
         repository.update_outbox_command_state(cancel_command.id, OutboxCommandState.FAILED)
@@ -616,6 +642,14 @@ def test_replacement_placement_waits_for_cancellation_success(
         command for command in repository.list_outbox_commands() if command.id == blocked_place.id
     )
     assert blocked_place_after_failed.state == OutboxCommandState.BLOCKED
+    assert next(
+        order for order in repository.list_orders() if order.id == cancel_target_id
+    ).state == OrderState.CANCEL_FAILED
+
+    restarted_repository = SqlAlchemyTradingStateRepository(migrated_session_factory)
+    assert next(
+        order for order in restarted_repository.list_orders() if order.id == cancel_target_id
+    ).state == OrderState.CANCEL_FAILED
 
     released = repository.update_outbox_command_state(
         cancel_command.id, OutboxCommandState.SUCCEEDED
@@ -627,6 +661,18 @@ def test_replacement_placement_waits_for_cancellation_success(
     )
     assert blocked_place_after_success.state == OutboxCommandState.PENDING
     assert blocked_place_after_success.released_at is not None
+    succeeded_order = next(
+        order for order in repository.list_orders() if order.id == cancel_target_id
+    )
+    assert succeeded_order.state == OrderState.CANCELLED
+    assert succeeded_order.cancelled_at is not None
+
+    restarted_repository = SqlAlchemyTradingStateRepository(migrated_session_factory)
+    succeeded_order_after_restart = next(
+        order for order in restarted_repository.list_orders() if order.id == cancel_target_id
+    )
+    assert succeeded_order_after_restart.state == OrderState.CANCELLED
+    assert succeeded_order_after_restart.cancelled_at is not None
 
     assert (
         repository.update_outbox_command_state(cancel_command.id, OutboxCommandState.SUCCEEDED)

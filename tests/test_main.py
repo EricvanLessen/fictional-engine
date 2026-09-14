@@ -15,6 +15,9 @@ def clear_env_main(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         "TELEGRAM_CHANNEL_ID",
         "TELEGRAM_API_ID",
         "TELEGRAM_API_HASH",
+        "TELEGRAM_PHONE_NUMBER",
+        "TELEGRAM_SESSION_PATH",
+        "TELEGRAM_CATCHUP_LIMIT",
         "TELEGRAM_SESSION_STRING",
         "TRADELOCKER_BASE_URL",
         "TRADELOCKER_USERNAME",
@@ -73,3 +76,11 @@ def test_main_startup_with_live_trading_flag_no_secret_leak(
     stderr = captured.err + captured.out
 
     assert secret_password not in stderr, f"Secret leaked in output: {stderr}"
+
+
+def test_main_rejects_non_shadow_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TELEGRAM_API_ID", "99999")
+    monkeypatch.setenv("TELEGRAM_API_HASH", "hash")
+    monkeypatch.setenv("EXECUTION_MODE", "demo")
+
+    assert main() == 1

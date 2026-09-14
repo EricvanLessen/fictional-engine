@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import AliasChoices, AnyUrl, Field, SecretStr, model_validator
@@ -23,20 +24,34 @@ class EngineSettings(BaseSettings):
     execution_mode: ExecutionMode = "shadow"
     allow_live_trading: bool = False
 
-    telegram_channel_id: int
+    telegram_channel_id: int | None = None
     telegram_api_id: int
     telegram_api_hash: SecretStr
+    telegram_phone_number: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("TELEGRAM_PHONE_NUMBER", "TELEGRAM_PHONE"),
+    )
+    telegram_session_path: Path = Field(
+        default=Path(".telegram/session"),
+        validation_alias=AliasChoices("TELEGRAM_SESSION_PATH", "TELEGRAM_SESSION"),
+    )
+    telegram_catchup_limit: int = Field(
+        default=200,
+        ge=1,
+        le=5000,
+        validation_alias=AliasChoices("TELEGRAM_CATCHUP_LIMIT", "TELEGRAM_HISTORY_LIMIT"),
+    )
     telegram_session_string: SecretStr | None = Field(
         default=None,
-        validation_alias=AliasChoices("TELEGRAM_SESSION_STRING", "TELEGRAM_SESSION"),
+        validation_alias=AliasChoices("TELEGRAM_SESSION_STRING"),
     )
 
-    tradelocker_base_url: AnyUrl
-    tradelocker_username: SecretStr
-    tradelocker_password: SecretStr
-    tradelocker_account_id: str
+    tradelocker_base_url: AnyUrl | None = None
+    tradelocker_username: SecretStr | None = None
+    tradelocker_password: SecretStr | None = None
+    tradelocker_account_id: str | None = None
 
-    database_url: str
+    database_url: str = "sqlite:///./data/fictional-engine.db"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
     @model_validator(mode="after")
@@ -58,10 +73,15 @@ class EngineSettings(BaseSettings):
             "telegram_channel_id": self.telegram_channel_id,
             "telegram_api_id": self.telegram_api_id,
             "telegram_api_hash": "***",
+            "telegram_phone_number": "***" if self.telegram_phone_number else None,
+            "telegram_session_path": str(self.telegram_session_path),
+            "telegram_catchup_limit": self.telegram_catchup_limit,
             "telegram_session_string": "***" if self.telegram_session_string else None,
-            "tradelocker_base_url": str(self.tradelocker_base_url),
-            "tradelocker_username": "***",
-            "tradelocker_password": "***",
+            "tradelocker_base_url": (
+                None if self.tradelocker_base_url is None else str(self.tradelocker_base_url)
+            ),
+            "tradelocker_username": "***" if self.tradelocker_username else None,
+            "tradelocker_password": "***" if self.tradelocker_password else None,
             "tradelocker_account_id": self.tradelocker_account_id,
             "database_url": "***",
             "log_level": self.log_level,

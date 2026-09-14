@@ -20,6 +20,8 @@ build/
 *.session
 *.session-journal
 telegram-session*
+.telegram/
+secrets/
 data/
 *.db
 *.sqlite

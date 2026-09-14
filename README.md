@@ -99,6 +99,19 @@ For the September 9 fixture sequence, the state machine:
 
 The transactional outbox persists broker intents atomically with state mutations and processed-event markers so replay and restart do not create duplicate commands.
 
+## M4 Telegram adapter
+
+M4 adds a read-only Telegram MTProto user-session adapter and runtime processing service.
+
+- only the configured Telegram channel is accepted
+- new messages and edits are converted into immutable raw-message versions
+- only newly inserted versions are parsed and applied to the M3 state machine
+- exact duplicates are logged and skipped for parsing/state application
+- adapter reconnect uses bounded backoff and resumes catch-up from the last persisted channel position
+- structured JSON logs include connection lifecycle, ingestion, parsing, state application, manual-review creation, and outbox creation
+
+M4 does not call TradeLocker and remains shadow-only (`EXECUTION_MODE=shadow`).
+
 ## Container
 
 - Build and run with Docker Compose:

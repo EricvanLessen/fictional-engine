@@ -55,6 +55,19 @@ class RawTelegramMessageRecord(Base):
     previous_version: Mapped[RawTelegramMessageRecord | None] = relationship(remote_side=[id])
 
 
+class TelegramChannelPositionRecord(Base):
+    __tablename__ = "telegram_channel_positions"
+    __table_args__ = (UniqueConstraint("channel_id", name="uq_telegram_channel_positions_channel"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    channel_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    last_message_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    last_occurrence_timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class SessionRecord(Base):
     __tablename__ = "sessions"
     __table_args__ = (

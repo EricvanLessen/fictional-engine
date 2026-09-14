@@ -73,3 +73,19 @@ def test_main_startup_with_live_trading_flag_no_secret_leak(
     stderr = captured.err + captured.out
 
     assert secret_password not in stderr, f"Secret leaked in output: {stderr}"
+
+
+def test_main_rejects_non_shadow_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TELEGRAM_CHANNEL_ID", "1234")
+    monkeypatch.setenv("TELEGRAM_API_ID", "99999")
+    monkeypatch.setenv("TELEGRAM_API_HASH", "hash")
+    monkeypatch.setenv("TRADELOCKER_BASE_URL", "https://demo.example.com")
+    monkeypatch.setenv("TRADELOCKER_USERNAME", "user")
+    monkeypatch.setenv("TRADELOCKER_PASSWORD", "password")
+    monkeypatch.setenv("TRADELOCKER_ACCOUNT_ID", "acct")
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///:memory:")
+    monkeypatch.setenv("EXECUTION_MODE", "demo")
+
+    assert main() == 1

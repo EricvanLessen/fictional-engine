@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from fictional_engine.domain.raw_messages import RawTelegramMessage
+from fictional_engine.domain.raw_messages import RawTelegramMessage, StoredRawTelegramMessage
 
 
 class MessageClassification(StrEnum):
@@ -80,6 +80,23 @@ class MessageSource(BaseModel):
             channel_title=raw_message.channel_title,
             text=raw_message.text,
             caption=raw_message.caption,
+        )
+
+    @classmethod
+    def from_stored_message(cls, stored_message: StoredRawTelegramMessage) -> MessageSource:
+        return cls(
+            identity=MessageIdentity(
+                channel_id=stored_message.channel_id,
+                message_id=stored_message.message_id,
+                version=stored_message.version,
+                content_hash=stored_message.content_hash,
+            ),
+            message_date=stored_message.message_date,
+            edit_date=stored_message.edit_date,
+            sender_name=stored_message.sender_name,
+            channel_title=stored_message.channel_title,
+            text=stored_message.text,
+            caption=stored_message.caption,
         )
 
     @property

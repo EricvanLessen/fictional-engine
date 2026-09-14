@@ -84,6 +84,21 @@ fictional-engine-replay fixtures/replay/september-9-m1.json --database-url sqlit
 
 The replay command applies database migrations, sorts fixture inputs by occurrence timestamp and message order, stores exact duplicates idempotently, and creates linked immutable versions for edited messages.
 
+## M3 state machine
+
+M3 adds persistent session, order, position, processed-event, manual-review, and command-outbox tables. The stateful processing path resolves context-dependent parser events such as replacement orders with missing instruments and `TP.` status messages against the persisted session state.
+
+For the September 9 fixture sequence, the state machine:
+
+- creates the initial pending orders
+- marks the triggered sell order as an active position
+- cancels only the matching pending buy order
+- resolves the replacement buy order from session context
+- records `TP.` as a state transition without creating a close-position command
+- ends the session without implicitly closing positions or canceling unspecified orders
+
+The transactional outbox persists broker intents atomically with state mutations and processed-event markers so replay and restart do not create duplicate commands.
+
 ## Container
 
 - Build and run with Docker Compose:

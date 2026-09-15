@@ -10,6 +10,8 @@ AUTHORITATIVE_CONTROL_REF = "refs/heads/main"
 MAX_REPAIR_ATTEMPTS_PER_TASK = 3
 MAX_AGENT_TURNS_WITHOUT_PROGRESS = 5
 STOP_REASON_SECOND_TASK_CREATED = "SECOND_TASK_CREATED"
+STOP_REASON_REPAIR_ATTEMPT_LIMIT_REACHED = "REPAIR_ATTEMPT_LIMIT_REACHED"
+STOP_REASON_NO_PROGRESS_LIMIT_REACHED = "NO_PROGRESS_LIMIT_REACHED"
 
 TASK_ID_PATTERN = re.compile(r"^task-\d{4,}$")
 MESSAGE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{7,}$")
@@ -216,12 +218,30 @@ class RunEventDocument(ControlDocument):
 
     @model_validator(mode="after")
     def validate_event_shape(self) -> RunEventDocument:
-        if self.event_type == RunEventType.COPILOT_RESULT_RECORDED and self.head_sha is None:
-            raise ValueError("COPILOT_RESULT_RECORDED requires head_sha")
-        if self.event_type == RunEventType.CI_EVIDENCE_RECORDED and self.expected_head_sha is None:
-            raise ValueError("CI_EVIDENCE_RECORDED requires expected_head_sha")
-        if self.event_type == RunEventType.OPENAI_REVIEW_RECORDED and self.review_decision is None:
-            raise ValueError("OPENAI_REVIEW_RECORDED requires review_decision")
+        requires_implementation_sha = {
+            RunEventType.COPILOT_RESULT_RECORDED,
+            RunEventType.CI_EVIDENCE_RECORDED,
+            RunEventType.OPENAI_REVIEW_RECORDED,
+        }
+        if self.event_type in requires_implementation_sha and self.commit_sha is None:
+            raise ValueError(f"{self.event_type} requires commit_sha")
+        if self.event_type == RunEventType.COPILOT_RESULT_RECORDED:
+            if self.head_sha is None:
+                raise ValueError("COPILOT_RESULT_RECORDED requires head_sha")
+            if self.commit_sha != self.head_sha:
+                raise ValueError("COPILOT_RESULT_RECORDED requires commit_sha == head_sha")
+        if self.event_type == RunEventType.CI_EVIDENCE_RECORDED:
+            if self.expected_head_sha is None:
+                raise ValueError("CI_EVIDENCE_RECORDED requires expected_head_sha")
+            if self.commit_sha != self.expected_head_sha:
+                raise ValueError("CI_EVIDENCE_RECORDED requires commit_sha == expected_head_sha")
+        if self.event_type == RunEventType.OPENAI_REVIEW_RECORDED:
+            if self.review_decision is None:
+                raise ValueError("OPENAI_REVIEW_RECORDED requires review_decision")
+            if self.expected_head_sha is None:
+                raise ValueError("OPENAI_REVIEW_RECORDED requires expected_head_sha")
+            if self.commit_sha != self.expected_head_sha:
+                raise ValueError("OPENAI_REVIEW_RECORDED requires commit_sha == expected_head_sha")
         if self.event_type == RunEventType.NEXT_TASK_CREATED and self.next_task_id is None:
             raise ValueError("NEXT_TASK_CREATED requires next_task_id")
         return self

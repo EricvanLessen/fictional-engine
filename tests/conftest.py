@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,9 @@ from fictional_engine.adapters.persistence.database import build_session_factory
 from fictional_engine.application.replay_cli import run_migrations
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "src"))
+
 FIXTURE_PATH = REPO_ROOT / "fixtures" / "replay" / "september-9-m1.json"
 SOURCE_PAYLOAD_REGRESSION_FIXTURE_PATH = (
     REPO_ROOT / "fixtures" / "replay" / "source-payload-regression.json"

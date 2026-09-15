@@ -99,6 +99,12 @@ For the September 9 fixture sequence, the state machine:
 
 The transactional outbox persists broker intents atomically with state mutations and processed-event markers so replay and restart do not create duplicate commands.
 
+## Development automation bootstrap
+
+Issue #6 Increment A adds an isolated `development_automation` package plus append-only `control/` documents for a GitHub-backed coordination protocol. This slice is offline-only: it validates versioned Markdown/YAML control envelopes, enforces deterministic workflow transitions, reconstructs projections from immutable run events, and stops after creating exactly one follow-up task.
+
+The authoritative control ref for both agents is `refs/heads/main`. Follow-up increments for the dispatcher, live providers, and proof cycle remain documented in [control/ARCHITECTURE.md](control/ARCHITECTURE.md) and are intentionally not implemented in this PR.
+
 ## Container
 
 - Build and run with Docker Compose:

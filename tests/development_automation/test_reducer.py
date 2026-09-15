@@ -73,8 +73,8 @@ def test_stale_head_is_rejected() -> None:
     run_events = _load_run_events()
     stale_ci_event = _updated_event(
         run_events[3],
-        expected_head_sha="abcdef0",
-        commit_sha="abcdef0",
+        expected_head_sha="b" * 40,
+        commit_sha="b" * 40,
     )
 
     with pytest.raises(StaleHeadError):

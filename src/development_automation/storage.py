@@ -47,6 +47,11 @@ def _all_control_documents(root: Path) -> Iterator[tuple[Path, Document]]:
             yield (path, parse_control_document(path.read_text(encoding="utf-8")))
 
 
+def _canonicalize_document(document: Document) -> Document:
+    # Canonical identity must match the persisted representation.
+    return parse_control_document(render_control_document(document))
+
+
 def _acquire_lock(root: Path) -> BinaryIO:
     root.mkdir(parents=True, exist_ok=True)
     lock_path = root / ".append.lock"
@@ -69,7 +74,8 @@ def load_documents(directory: Path) -> list[Document]:
 
 def append_document(root: Path, relative_directory: str, document: Document) -> Path:
     directory = _safe_directory(root, relative_directory)
-    if not _document_matches_directory(relative_directory, document):
+    canonical_document = _canonicalize_document(document)
+    if not _document_matches_directory(relative_directory, canonical_document):
         raise PathTraversalError(
             f"document type does not match target directory {relative_directory!r}"
         )
@@ -77,16 +83,17 @@ def append_document(root: Path, relative_directory: str, document: Document) -> 
     lock_handle = _acquire_lock(root)
     try:
         for existing_path, existing_document in _all_control_documents(root):
-            if existing_document.message_id != document.message_id:
+            if existing_document.message_id != canonical_document.message_id:
                 continue
-            if existing_document == document:
+            if existing_document == canonical_document:
                 return existing_path
             raise DuplicateMessageIdError(
-                f"message_id {document.message_id!r} already exists with different content"
+                "message_id "
+                f"{canonical_document.message_id!r} already exists with different content"
             )
 
-        destination = directory / _filename_for_document(document)
-        rendered_document = render_control_document(document)
+        destination = directory / _filename_for_document(canonical_document)
+        rendered_document = render_control_document(canonical_document)
 
         try:
             fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)

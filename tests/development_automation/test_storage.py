@@ -121,6 +121,24 @@ def test_exact_redelivery_is_idempotent_no_op(tmp_path: Path) -> None:
     assert len(list((control_root / "messages").glob("*.md"))) == 1
 
 
+def test_redactable_redelivery_uses_canonical_persisted_representation(
+    tmp_path: Path,
+) -> None:
+    control_root = tmp_path / "control"
+    document = _document("msg-20260915-idempotent-redacted-9999").model_copy(
+        update={"body": "OPENAI_API_KEY=synthetic-test-value\nKeep note.\n"}
+    )
+
+    first_path = append_document(control_root, "messages", document)
+    second_path = append_document(control_root, "messages", document)
+    persisted_text = first_path.read_text(encoding="utf-8")
+
+    assert first_path == second_path
+    assert len(list((control_root / "messages").glob("*.md"))) == 1
+    assert "[REDACTED_CREDENTIAL]" in persisted_text
+    assert "synthetic-test-value" not in persisted_text
+
+
 def test_foreign_document_type_rejected_per_directory(tmp_path: Path) -> None:
     control_root = tmp_path / "control"
 

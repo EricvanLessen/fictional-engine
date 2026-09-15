@@ -7,7 +7,7 @@
 ## Increment status
 
 - Increment A: implemented on feature branch for review in this pull request; not authoritative until merged to `refs/heads/main`.
-- Increment B: not started.
+- Increment B: implemented on `feat/development-automation-dispatcher` for review in this pull request; not authoritative until merged to `refs/heads/main`.
 - Increment C: not started.
 - Increment D: not started.
 
@@ -20,9 +20,16 @@
 
 ## Not yet implemented
 
-- Webhook or Actions event intake.
-- GitHub claim or compare-and-swap execution.
-- Remote Copilot task dispatch.
-- OpenAI API calls.
-- Live CI reconciliation against GitHub checks.
-- Notification delivery.
+- Real GitHub provider calls for Copilot dispatch or review remain deferred to Increment C.
+- OpenAI API reviewer integration remains deferred to Increment C.
+- Notification delivery remains deferred to Increment D.
+
+## Available guarantees after Increment B
+
+- Deterministic GitHub event dispatcher policy for allowlisted repositories, actors, and supported event types.
+- Webhook HMAC verification, body size guard, and duplicate delivery-ID suppression.
+- Actions transport trust checks for authenticated invocation and workflow-ref allowlists.
+- Durable append-only dispatcher claim/intents with replay-based recovery of unfinished work.
+- Duplicate concurrent deliveries converge to one logical dispatch intent.
+- CI gate approval requires configured check names, trusted workflow identities, completed status, success conclusion, and exact head SHA match.
+- `SECOND_TASK_CREATED` stop boundary remains active and blocks new dispatch attempts.

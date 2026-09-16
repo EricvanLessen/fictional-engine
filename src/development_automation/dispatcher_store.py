@@ -19,6 +19,15 @@ class DispatcherStoreError(DevelopmentAutomationError):
 TERMINAL_INTENT_STATES = {"completed", "failed", "blocked"}
 NON_TERMINAL_INTENT_STATES = {"claimed", "running"}
 
+ALLOWED_STATUS_TRANSITIONS: dict[str, set[str]] = {
+    "claimed": {"running", "completed", "failed", "blocked", "unknown"},
+    "running": {"running", "completed", "failed", "blocked", "unknown"},
+    "completed": set(),
+    "failed": set(),
+    "blocked": set(),
+    "unknown": set(),
+}
+
 
 @dataclass(frozen=True)
 class DispatchIntent:
@@ -30,6 +39,13 @@ class DispatchIntent:
     branch: str | None
     correlation_id: str
     status: str
+    version: int
+    lease_owner: str | None = None
+    lease_expires_at: str | None = None
+    provider_run_id: str | None = None
+
+
+TERMINAL_INTENT_STATES = TERMINAL_INTENT_STATES.union({"unknown"})
 
 
 class FileDispatcherStore:
@@ -70,10 +86,12 @@ class FileDispatcherStore:
 
             if kind not in {
                 "intent_claimed",
+                "intent_leased",
                 "intent_running",
                 "intent_completed",
                 "intent_failed",
                 "intent_blocked",
+                "intent_unknown",
             }:
                 continue
 
@@ -85,6 +103,10 @@ class FileDispatcherStore:
             branch = record.get("branch")
             correlation_id = record.get("correlation_id")
             status = record.get("status")
+            version = record.get("version")
+            lease_owner = record.get("lease_owner")
+            lease_expires_at = record.get("lease_expires_at")
+            provider_run_id = record.get("provider_run_id")
             if not isinstance(intent_id, str):
                 raise DispatcherStoreError("dispatcher intent record missing intent_id")
             if not isinstance(dedupe_key, str):
@@ -97,10 +119,15 @@ class FileDispatcherStore:
                 raise DispatcherStoreError(
                     "dispatcher intent record is missing required string fields"
                 )
+            if not isinstance(version, int):
+                raise DispatcherStoreError("dispatcher intent record missing version")
 
             task_value = task_id if isinstance(task_id, str) else None
             head_value = head_sha if isinstance(head_sha, str) else None
             branch_value = branch if isinstance(branch, str) else None
+            lease_owner_value = lease_owner if isinstance(lease_owner, str) else None
+            lease_expires_at_value = lease_expires_at if isinstance(lease_expires_at, str) else None
+            provider_run_id_value = provider_run_id if isinstance(provider_run_id, str) else None
 
             intents_by_id[intent_id] = DispatchIntent(
                 intent_id=intent_id,
@@ -111,8 +138,23 @@ class FileDispatcherStore:
                 branch=branch_value,
                 correlation_id=correlation_id,
                 status=status,
+                version=version,
+                lease_owner=lease_owner_value,
+                lease_expires_at=lease_expires_at_value,
+                provider_run_id=provider_run_id_value,
             )
         return deliveries, intents_by_id
+
+    def _is_lease_expired(self, lease_expires_at: str | None, now: datetime) -> bool:
+        if lease_expires_at is None:
+            return True
+        try:
+            lease_deadline = datetime.fromisoformat(lease_expires_at)
+        except ValueError as exc:
+            raise DispatcherStoreError("lease_expires_at is not a valid ISO timestamp") from exc
+        if lease_deadline.tzinfo is None or lease_deadline.utcoffset() is None:
+            raise DispatcherStoreError("lease_expires_at must be timezone-aware")
+        return lease_deadline <= now
 
     def _lock(self) -> BinaryIO:
         lock_handle = self._lock_path.open("a+b")
@@ -166,6 +208,7 @@ class FileDispatcherStore:
                 branch=branch,
                 correlation_id=correlation_id,
                 status="claimed",
+                version=1,
             )
             self._append_record_locked(
                 {
@@ -179,13 +222,25 @@ class FileDispatcherStore:
                     "branch": intent.branch,
                     "correlation_id": intent.correlation_id,
                     "status": intent.status,
+                    "version": intent.version,
+                    "lease_owner": intent.lease_owner,
+                    "lease_expires_at": intent.lease_expires_at,
+                    "provider_run_id": intent.provider_run_id,
                 }
             )
             return intent, True
         finally:
             self._unlock(lock_handle)
 
-    def transition_intent(self, intent_id: str, status: str) -> DispatchIntent:
+    def transition_intent(
+        self,
+        intent_id: str,
+        status: str,
+        *,
+        expected_status: str | None = None,
+        expected_version: int | None = None,
+        provider_run_id: str | None = None,
+    ) -> DispatchIntent:
         if status not in NON_TERMINAL_INTENT_STATES.union(TERMINAL_INTENT_STATES):
             raise DispatcherStoreError(f"unsupported dispatcher intent status: {status}")
 
@@ -195,6 +250,23 @@ class FileDispatcherStore:
             intent = intents_by_id.get(intent_id)
             if intent is None:
                 raise DispatcherStoreError(f"unknown intent_id {intent_id!r}")
+            if expected_status is not None and intent.status != expected_status:
+                raise DispatcherStoreError(
+                    f"expected status {expected_status!r} but found {intent.status!r}"
+                )
+            if expected_version is not None and intent.version != expected_version:
+                raise DispatcherStoreError(
+                    f"expected version {expected_version} but found {intent.version}"
+                )
+
+            allowed_targets = ALLOWED_STATUS_TRANSITIONS.get(intent.status)
+            if allowed_targets is None or status not in allowed_targets:
+                raise DispatcherStoreError(
+                    f"illegal transition from {intent.status!r} to {status!r}"
+                )
+
+            next_provider_run_id = provider_run_id or intent.provider_run_id
+
             updated_intent = DispatchIntent(
                 intent_id=intent.intent_id,
                 dedupe_key=intent.dedupe_key,
@@ -204,6 +276,12 @@ class FileDispatcherStore:
                 branch=intent.branch,
                 correlation_id=intent.correlation_id,
                 status=status,
+                version=intent.version + 1,
+                lease_owner=None if status in TERMINAL_INTENT_STATES else intent.lease_owner,
+                lease_expires_at=(
+                    None if status in TERMINAL_INTENT_STATES else intent.lease_expires_at
+                ),
+                provider_run_id=next_provider_run_id,
             )
             self._append_record_locked(
                 {
@@ -217,9 +295,75 @@ class FileDispatcherStore:
                     "branch": updated_intent.branch,
                     "correlation_id": updated_intent.correlation_id,
                     "status": updated_intent.status,
+                    "version": updated_intent.version,
+                    "lease_owner": updated_intent.lease_owner,
+                    "lease_expires_at": updated_intent.lease_expires_at,
+                    "provider_run_id": updated_intent.provider_run_id,
                 }
             )
             return updated_intent
+        finally:
+            self._unlock(lock_handle)
+
+    def lease_unfinished_intent(
+        self,
+        *,
+        worker_id: str,
+        lease_seconds: int = 120,
+        now: datetime | None = None,
+    ) -> DispatchIntent | None:
+        if lease_seconds <= 0:
+            raise DispatcherStoreError("lease_seconds must be > 0")
+
+        lock_handle = self._lock()
+        try:
+            _, intents_by_id = self._load_state_locked()
+            lease_now = now or datetime.now(UTC)
+            for intent in sorted(intents_by_id.values(), key=lambda item: item.intent_id):
+                if intent.status not in NON_TERMINAL_INTENT_STATES:
+                    continue
+                if intent.lease_owner and not self._is_lease_expired(
+                    intent.lease_expires_at,
+                    lease_now,
+                ):
+                    continue
+
+                lease_expires_at = (lease_now.timestamp() + lease_seconds)
+                lease_deadline = datetime.fromtimestamp(lease_expires_at, tz=UTC).isoformat()
+                leased_intent = DispatchIntent(
+                    intent_id=intent.intent_id,
+                    dedupe_key=intent.dedupe_key,
+                    operation=intent.operation,
+                    task_id=intent.task_id,
+                    head_sha=intent.head_sha,
+                    branch=intent.branch,
+                    correlation_id=intent.correlation_id,
+                    status=intent.status,
+                    version=intent.version + 1,
+                    lease_owner=worker_id,
+                    lease_expires_at=lease_deadline,
+                    provider_run_id=intent.provider_run_id,
+                )
+                self._append_record_locked(
+                    {
+                        "kind": "intent_leased",
+                        "recorded_at": lease_now.isoformat(),
+                        "intent_id": leased_intent.intent_id,
+                        "dedupe_key": leased_intent.dedupe_key,
+                        "operation": leased_intent.operation,
+                        "task_id": leased_intent.task_id,
+                        "head_sha": leased_intent.head_sha,
+                        "branch": leased_intent.branch,
+                        "correlation_id": leased_intent.correlation_id,
+                        "status": leased_intent.status,
+                        "version": leased_intent.version,
+                        "lease_owner": leased_intent.lease_owner,
+                        "lease_expires_at": leased_intent.lease_expires_at,
+                        "provider_run_id": leased_intent.provider_run_id,
+                    }
+                )
+                return leased_intent
+            return None
         finally:
             self._unlock(lock_handle)
 

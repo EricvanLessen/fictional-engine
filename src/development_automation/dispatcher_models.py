@@ -64,7 +64,9 @@ class DispatcherEvent(BaseModel):
     source: str
     repository: str
     actor: str
+    event_action: str | None = None
     task_id: str | None = None
+    attempt: int | None = None
     branch: str | None = None
     pull_request_number: int | None = None
     head_sha: str | None = None
@@ -80,7 +82,15 @@ class DispatcherEvent(BaseModel):
         task_id = self.task_id or "none"
         head_sha = self.head_sha or "none"
         pr_number = self.pull_request_number or 0
-        return f"{self.event_type}:{self.repository}:{task_id}:{head_sha}:{pr_number}"
+        attempt = self.attempt or 0
+        comment_fingerprint = ""
+        if self.event_type == DispatchEventType.ISSUE_COMMENT:
+            body = (self.comment_body or "").strip().encode("utf-8")
+            comment_fingerprint = ":" + sha256(body).hexdigest()[:16]
+        return (
+            f"{self.event_type}:{self.repository}:{task_id}:{head_sha}:{pr_number}:{attempt}"
+            f"{comment_fingerprint}"
+        )
 
 
 def verify_webhook_signature(secret: str, body: bytes, signature_header: str | None) -> bool:

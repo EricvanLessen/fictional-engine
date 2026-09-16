@@ -282,22 +282,25 @@ class GitHubCopilotCodingAgent:
             raise ProviderResponseError(f"GitHub returned HTTP {response.status_code} for {path}")
         return response
 
-    def _iter_issue_candidates(self) -> list[dict[str, Any]]:
-        response = self._request(
-            "GET",
-            f"/repos/{self._owner}/{self._repo}/issues?state=all&per_page=100",
-        )
-        payload = response.json()
-        if not isinstance(payload, list):
-            raise ProviderResponseError("GitHub issues list response must be a list")
-        return [item for item in payload if isinstance(item, dict)]
-
     def _find_issue_by_correlation(self, correlation_id: str) -> dict[str, Any] | None:
         marker = self._marker("correlation_id", correlation_id)
-        for issue in self._iter_issue_candidates():
-            body = issue.get("body")
-            if isinstance(body, str) and marker in body:
-                return issue
+        page = 1
+        while True:
+            response = self._request(
+                "GET",
+                f"/repos/{self._owner}/{self._repo}/issues?state=all&per_page=100&page={page}",
+            )
+            payload = response.json()
+            if not isinstance(payload, list):
+                raise ProviderResponseError("GitHub issues list response must be a list")
+            issue_candidates = [item for item in payload if isinstance(item, dict)]
+            for issue in issue_candidates:
+                body = issue.get("body")
+                if isinstance(body, str) and marker in body:
+                    return issue
+            if len(issue_candidates) < 100:
+                break
+            page += 1
         return None
 
     def _render_issue_body(

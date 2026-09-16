@@ -267,3 +267,50 @@ def test_github_rate_limit_403_is_retryable() -> None:
 
     with pytest.raises(ProviderRateLimitError):
         agent.reconcile("corr-3")
+
+
+def test_github_issue_lookup_paginates_until_match() -> None:
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        if request.url.params.get("page") == "1":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "number": index,
+                        "title": f"Issue {index}",
+                        "body": "unrelated",
+                        "html_url": f"https://github.com/EricvanLessen/fictional-engine/issues/{index}",
+                        "state": "open",
+                        "assignees": [],
+                    }
+                    for index in range(1, 101)
+                ],
+            )
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "number": 101,
+                    "title": "Matched issue",
+                    "body": "<!-- development-automation:correlation_id:corr-101 -->",
+                    "html_url": "https://github.com/EricvanLessen/fictional-engine/issues/101",
+                    "state": "open",
+                    "assignees": [],
+                }
+            ],
+        )
+
+    agent = GitHubCopilotCodingAgent(
+        repository="EricvanLessen/fictional-engine",
+        token="github-token",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    reconciled = agent.reconcile("corr-101")
+
+    assert reconciled is not None
+    assert reconciled.provider_run_id == "issue:101"
+    assert any("page=2" in call for call in calls)

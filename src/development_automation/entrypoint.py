@@ -615,7 +615,13 @@ class PortableDispatcherEntrypoint:
             provider_run_id=review_outcome.provider_run_id,
         )
         persisted.extend(
-            self._persist_review(task, event.repository, event.head_sha, review_outcome)
+            self._persist_review(
+                task,
+                event.repository,
+                event.head_sha,
+                review_outcome,
+                event_created_at,
+            )
         )
         return tuple(persisted)
 
@@ -625,6 +631,7 @@ class PortableDispatcherEntrypoint:
         repository: str,
         head_sha: str,
         review_outcome: OpenAIReviewOutcome,
+        created_at: datetime,
     ) -> list[str]:
         persisted: list[str] = []
         result = review_outcome.result
@@ -636,7 +643,7 @@ class PortableDispatcherEntrypoint:
             type=DocumentType.REVIEW_DECISION,
             status=DocumentStatus.FINAL,
             branch=task.branch,
-            created_at=_now(),
+            created_at=created_at + timedelta(seconds=1),
             attempt=task.current_attempt,
             expected_head_sha=head_sha,
             pull_request_url=(
@@ -659,7 +666,7 @@ class PortableDispatcherEntrypoint:
             from_actor=Actor.OPENAI,
             to_actor=Actor.GITHUB,
             branch=task.branch,
-            created_at=_now(),
+            created_at=created_at + timedelta(seconds=2),
             attempt=task.current_attempt,
             expected_head_sha=head_sha,
             pull_request_url=(
@@ -685,8 +692,7 @@ class PortableDispatcherEntrypoint:
         if result.decision != ReviewDecision.NEXT_TASK:
             return persisted
 
-        projection = self._projection()
-        next_task_number = max(int(task_id.split("-")[1]) for task_id in projection.tasks) + 1
+        next_task_number = int(task.task_id.split("-")[1]) + 1
         next_task_id = f"task-{next_task_number:04d}"
         next_branch = _slugify_branch(result.next_task_title or next_task_id, next_task_number)
         next_intent, claimed = self._store.claim_intent(
@@ -704,7 +710,7 @@ class PortableDispatcherEntrypoint:
             type=DocumentType.TASK_INSTRUCTION,
             status=DocumentStatus.PENDING,
             branch=next_branch,
-            created_at=_now(),
+            created_at=created_at + timedelta(seconds=3),
             body=f"# {result.next_task_title}\n\n{result.next_task_body}\n",
         )
         persisted.append(self._append("messages", next_message))
@@ -746,7 +752,7 @@ class PortableDispatcherEntrypoint:
             from_actor=Actor.GITHUB,
             to_actor=Actor.SYSTEM,
             branch=next_branch,
-            created_at=_now(),
+            created_at=created_at + timedelta(seconds=4),
             attempt=task.current_attempt,
             expected_head_sha=head_sha,
             pull_request_url=(

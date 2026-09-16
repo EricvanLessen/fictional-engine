@@ -170,6 +170,8 @@ class OpenAIReviewAdapter:
             for part in content:
                 if not isinstance(part, dict):
                     continue
+                if part.get("type") != "output_text":
+                    continue
                 text = part.get("text")
                 if isinstance(text, str) and text.strip():
                     return text

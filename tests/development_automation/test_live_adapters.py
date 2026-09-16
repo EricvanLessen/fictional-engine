@@ -118,6 +118,44 @@ def test_openai_review_rejects_malformed_structured_output() -> None:
         adapter.review(_review_context())
 
 
+def test_openai_review_prefers_output_text_parts() -> None:
+    adapter = OpenAIReviewAdapter(
+        api_key="openai-token",
+        http_client=httpx.Client(
+            transport=httpx.MockTransport(
+                lambda _: httpx.Response(
+                    200,
+                    json={
+                        "id": "resp_456",
+                        "output": [
+                            {
+                                "content": [
+                                    {"type": "message", "text": "ignore me"},
+                                    {
+                                        "type": "output_text",
+                                        "text": json.dumps(
+                                            {
+                                                "decision": "ACCEPT",
+                                                "summary": "Done.",
+                                                "rationale": "All checks passed.",
+                                                "accepted_criteria": [],
+                                            }
+                                        ),
+                                    },
+                                ]
+                            }
+                        ],
+                    },
+                )
+            )
+        ),
+    )
+
+    outcome = adapter.review(_review_context())
+
+    assert outcome.result.decision == "ACCEPT"
+
+
 def test_openai_review_handles_timeout_rate_limit_and_provider_errors(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

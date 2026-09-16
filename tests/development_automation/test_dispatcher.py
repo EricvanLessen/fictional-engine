@@ -21,6 +21,15 @@ from development_automation.mock_agents import MockAgentResult, MockCodingAgent
 from development_automation.schemas.v1 import RunEventDocument
 from development_automation.storage import append_document
 
+TRUSTED_WORKFLOW_REFS = (
+    "EricvanLessen/fictional-engine/.github/workflows/ci.yml@refs/heads/main",
+    "EricvanLessen/fictional-engine/.github/workflows/secret-scan.yml@refs/heads/main",
+)
+TRUSTED_DISPATCHER_REF = (
+    "EricvanLessen/fictional-engine/.github/workflows/development-automation-dispatcher.yml"
+    "@refs/heads/main"
+)
+
 
 def _signature(secret: str, body: bytes) -> str:
     return "sha256=" + hmac.new(secret.encode("utf-8"), body, sha256).hexdigest()
@@ -30,9 +39,9 @@ def _policy() -> DispatcherPolicy:
     return DispatcherPolicy(
         allowlisted_repositories=("EricvanLessen/fictional-engine",),
         allowlisted_actors=("EricvanLessen", "openai", "ci-bot"),
-        expected_check_names=("ruff", "mypy", "pytest"),
-        trusted_workflow_refs=("trusted/workflow.yml@refs/heads/main",),
-        trusted_actions_refs=("trusted/dispatcher.yml@refs/heads/main",),
+        expected_check_names=("checks", "docker", "gitleaks"),
+        trusted_workflow_refs=TRUSTED_WORKFLOW_REFS,
+        trusted_actions_refs=(TRUSTED_DISPATCHER_REF,),
     )
 
 
@@ -117,25 +126,25 @@ def _dispatch_event(
 def _ci_checks(head_sha: str) -> tuple[CheckRunEvidence, ...]:
     return (
         CheckRunEvidence(
-            name="ruff",
+            name="checks",
             status="completed",
             conclusion="success",
             head_sha=head_sha,
-            workflow_ref="trusted/workflow.yml@refs/heads/main",
+            workflow_ref="EricvanLessen/fictional-engine/.github/workflows/ci.yml@refs/heads/main",
         ),
         CheckRunEvidence(
-            name="mypy",
+            name="docker",
             status="completed",
             conclusion="success",
             head_sha=head_sha,
-            workflow_ref="trusted/workflow.yml@refs/heads/main",
+            workflow_ref="EricvanLessen/fictional-engine/.github/workflows/ci.yml@refs/heads/main",
         ),
         CheckRunEvidence(
-            name="pytest",
+            name="gitleaks",
             status="completed",
             conclusion="success",
             head_sha=head_sha,
-            workflow_ref="trusted/workflow.yml@refs/heads/main",
+            workflow_ref="EricvanLessen/fictional-engine/.github/workflows/secret-scan.yml@refs/heads/main",
         ),
     )
 

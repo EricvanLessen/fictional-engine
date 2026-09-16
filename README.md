@@ -109,7 +109,7 @@ The `development_automation` package now includes:
 - a live OpenAI Responses API review adapter
 - a portable dispatcher entrypoint for GitHub Actions or local replay
 
-The authoritative control ref for both agents remains `refs/heads/main`. Increment C still enforces a hard stop after `SECOND_TASK_CREATED`: the first follow-up task may be created as an auditable artifact, but it is never dispatched in this milestone.
+The authoritative append-only control ref for both agents is `refs/heads/copilot/development-automation-control`, while workflow code and policy still come from `main`. Increment C still enforces a hard stop after `SECOND_TASK_CREATED`: the first follow-up task may be created as an auditable artifact, but it is never dispatched in this milestone.
 
 See [docs/DEVELOPMENT_AUTOMATION_OPERATIONS.md](docs/DEVELOPMENT_AUTOMATION_OPERATIONS.md) for required environment variables and the dispatcher entrypoint command.
 

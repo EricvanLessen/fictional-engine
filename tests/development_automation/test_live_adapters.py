@@ -224,6 +224,42 @@ def test_github_copilot_task_assignment_is_idempotent() -> None:
             created["assignees"] = []
             created["body"] = request_payload["body"]
             return httpx.Response(200, json=created)
+        if request.method == "POST" and request.url.path == "/graphql":
+            payload = json.loads(request.content.decode("utf-8"))
+            query = payload["query"]
+            if "query CopilotAssignableIssue" in query:
+                return httpx.Response(
+                    200,
+                    json={
+                        "data": {
+                            "repository": {
+                                "issue": {
+                                    "id": "I_kwDO_issue_42",
+                                    "assignees": {"nodes": []},
+                                    "suggestedActors": {
+                                        "nodes": [
+                                            {
+                                                "__typename": "Bot",
+                                                "id": "BOT_kwDO_copilot",
+                                                "login": "copilot-swe-agent",
+                                            }
+                                        ]
+                                    },
+                                }
+                            }
+                        }
+                    },
+                )
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "replaceActorsForAssignable": {
+                            "assignable": {"id": "I_kwDO_issue_42"}
+                        }
+                    }
+                },
+            )
         if request.method == "PATCH" and request.url.path.endswith("/issues/42"):
             request_payload = json.loads(request.content.decode("utf-8"))
             updated = dict(issue_payload)
@@ -231,7 +267,7 @@ def test_github_copilot_task_assignment_is_idempotent() -> None:
             updated["assignees"] = issue_payload["assignees"]
             return httpx.Response(200, json=updated)
         if request.method == "POST" and request.url.path.endswith("/assignees"):
-            return httpx.Response(201, json=issue_payload)
+            return httpx.Response(422, json={"message": "Validation failed"})
         raise AssertionError(f"unexpected request {request.method} {request.url.path}")
 
     agent = GitHubCopilotCodingAgent(
@@ -260,7 +296,81 @@ def test_github_copilot_task_assignment_is_idempotent() -> None:
     assert first.provider_run_id == "issue:42"
     assert second.provider_run_id == "issue:42"
     assert calls.count(("POST", "/repos/EricvanLessen/fictional-engine/issues")) == 1
-    assert calls.count(("POST", "/repos/EricvanLessen/fictional-engine/issues/42/assignees")) == 1
+    assert calls.count(("POST", "/graphql")) == 2
+    assert ("POST", "/repos/EricvanLessen/fictional-engine/issues/42/assignees") not in calls
+
+
+def test_github_copilot_assignment_uses_graphql_even_if_rest_assignment_would_fail() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json=[])
+        if request.method == "POST" and request.url.path.endswith("/issues"):
+            return httpx.Response(
+                200,
+                json={
+                    "number": 42,
+                    "title": "[task-0009] Copilot implementation request",
+                    "body": "<!-- development-automation:correlation_id:corr-1 -->",
+                    "html_url": "https://github.com/EricvanLessen/fictional-engine/issues/42",
+                    "state": "open",
+                    "assignees": [],
+                },
+            )
+        if request.method == "POST" and request.url.path == "/graphql":
+            payload = json.loads(request.content.decode("utf-8"))
+            if "query CopilotAssignableIssue" in payload["query"]:
+                return httpx.Response(
+                    200,
+                    json={
+                        "data": {
+                            "repository": {
+                                "issue": {
+                                    "id": "I_kwDO_issue_42",
+                                    "assignees": {"nodes": []},
+                                    "suggestedActors": {
+                                        "nodes": [
+                                            {
+                                                "__typename": "Bot",
+                                                "id": "BOT_kwDO_copilot",
+                                                "login": "copilot-swe-agent",
+                                            }
+                                        ]
+                                    },
+                                }
+                            }
+                        }
+                    },
+                )
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "replaceActorsForAssignable": {
+                            "assignable": {"id": "I_kwDO_issue_42"}
+                        }
+                    }
+                },
+            )
+        if request.method == "POST" and request.url.path.endswith("/assignees"):
+            return httpx.Response(422, json={"message": "Validation failed"})
+        raise AssertionError(f"unexpected request {request.method} {request.url.path}")
+
+    agent = GitHubCopilotCodingAgent(
+        repository="EricvanLessen/fictional-engine",
+        token="github-token",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    result = agent.create_or_update_task(
+        task_id="task-0009",
+        branch="feat/development-automation-live-adapters",
+        correlation_id="corr-1",
+        title="Copilot implementation request",
+        body="Do the work.",
+        dispatch=True,
+    )
+
+    assert result.provider_run_id == "issue:42"
 
 
 def test_github_reconcile_finds_existing_issue_without_new_assignment() -> None:

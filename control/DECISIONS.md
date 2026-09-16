@@ -2,7 +2,6 @@
 
 ## 2026-09-15
 
-- Use `refs/heads/main` as the sole authoritative control ref for both agents.
 - Keep Increment A in a separate top-level Python package named `development_automation` to avoid coupling with trading runtime code.
 - Treat `control/CURRENT_STATE.md` as a projection only; append-only run events are authoritative.
 - Use Markdown files with YAML front matter for both correspondence and run artifacts.
@@ -21,5 +20,6 @@
 - Use the OpenAI Responses API directly through `httpx` with strict JSON-schema output validation and bounded control-plane review context.
 - Map GitHub issue numbers to protocol task IDs using the `task-0009` convention and preserve explicit branch instructions when present in the issue body.
 - Use hidden correlation markers in GitHub issue bodies so task creation, assignment, and restart reconciliation remain idempotent without persisting secrets.
+- Persist append-only control files to `refs/heads/copilot/development-automation-control` with optimistic Git ref updates and append-only conflict reconciliation for restart-safe recovery.
 - Persist OpenAI review correspondence before creating any follow-up task and keep review retries exact-head bound when provider failures are retryable.
 - Treat the second task as record-only in this increment: create the follow-up GitHub task, persist `NEXT_TASK_CREATED`, and stop before any second dispatch.

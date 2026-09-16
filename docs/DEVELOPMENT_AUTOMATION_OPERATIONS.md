@@ -5,6 +5,7 @@
 - `COPILOT_AGENT_TOKEN`
 - `OPENAI_API_KEY`
 - `DEVELOPMENT_AUTOMATION_ALLOWLISTED_ACTORS`
+- `DEVELOPMENT_AUTOMATION_CONTROL_BRANCH` (defaults to `copilot/development-automation-control`)
 
 Store both as GitHub Actions secrets or local environment variables. Never write them into `control/` documents, `.env`, logs, or committed fixtures.
 
@@ -20,9 +21,14 @@ development-automation-dispatch \
   --repository EricvanLessen/fictional-engine \
   --delivery-id delivery-123 \
   --source actions \
-  --actions-workflow-ref trusted/dispatcher.yml@refs/heads/main \
+  --actions-workflow-ref EricvanLessen/fictional-engine/.github/workflows/development-automation-dispatcher.yml@refs/heads/main \
   --allowlisted-actors EricvanLessen ci-bot Copilot copilot-swe-agent
 ```
+
+GitHub Actions should provide:
+
+- `DEVELOPMENT_AUTOMATION_REQUIRED_CHECKS=checks,docker,gitleaks`
+- `DEVELOPMENT_AUTOMATION_TRUSTED_WORKFLOW_REFS=EricvanLessen/fictional-engine/.github/workflows/ci.yml@refs/heads/main,EricvanLessen/fictional-engine/.github/workflows/secret-scan.yml@refs/heads/main`
 
 ## Event handling summary
 

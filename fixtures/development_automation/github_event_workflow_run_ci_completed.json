@@ -1,0 +1,50 @@
+{
+  "action": "completed",
+  "repository": {
+    "full_name": "EricvanLessen/fictional-engine"
+  },
+  "sender": {
+    "login": "Copilot"
+  },
+  "workflow_run": {
+    "id": 35121201362,
+    "name": "CI",
+    "event": "pull_request",
+    "head_branch": "feat/development-automation-live-adapters",
+    "head_sha": "0123456789abcdef0123456789abcdef01234567",
+    "path": ".github/workflows/ci.yml",
+    "pull_requests": [
+      {
+        "number": 10
+      }
+    ],
+    "created_at": "2026-09-16T16:19:55Z",
+    "updated_at": "2026-09-16T16:19:55Z"
+  },
+  "pull_request": {
+    "number": 10
+  },
+  "checks": [
+    {
+      "name": "checks",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "0123456789abcdef0123456789abcdef01234567",
+      "workflow_ref": "EricvanLessen/fictional-engine/.github/workflows/ci.yml@refs/heads/main"
+    },
+    {
+      "name": "docker",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "0123456789abcdef0123456789abcdef01234567",
+      "workflow_ref": "EricvanLessen/fictional-engine/.github/workflows/ci.yml@refs/heads/main"
+    },
+    {
+      "name": "gitleaks",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "0123456789abcdef0123456789abcdef01234567",
+      "workflow_ref": "EricvanLessen/fictional-engine/.github/workflows/secret-scan.yml@refs/heads/main"
+    }
+  ]
+}

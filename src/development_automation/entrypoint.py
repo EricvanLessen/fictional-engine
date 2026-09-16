@@ -23,6 +23,7 @@ from development_automation.dispatcher_models import (
     EventSource,
 )
 from development_automation.dispatcher_store import FileDispatcherStore
+from development_automation.github_persistence import GitHubControlBranchPersistence
 from development_automation.live_adapters import (
     GitHubCopilotCodingAgent,
     OpenAIReviewAdapter,
@@ -51,6 +52,16 @@ from development_automation.storage import append_document, load_documents
 BRANCH_INSTRUCTION_PATTERN = re.compile(
     r"(?:use|branch)\s+`?(feat/[A-Za-z0-9._/-]+)`?",
     re.IGNORECASE,
+)
+AUTOMATION_MARKER_PATTERN = re.compile(r"<!--\s*development-automation:[^>]+-->")
+DEFAULT_REQUIRED_CHECK_NAMES = ("checks", "docker", "gitleaks")
+DEFAULT_TRUSTED_WORKFLOW_REFS = (
+    "EricvanLessen/fictional-engine/.github/workflows/ci.yml@refs/heads/main",
+    "EricvanLessen/fictional-engine/.github/workflows/secret-scan.yml@refs/heads/main",
+)
+DEFAULT_DISPATCHER_WORKFLOW_REF = (
+    "EricvanLessen/fictional-engine/.github/workflows/development-automation-dispatcher.yml"
+    "@refs/heads/main"
 )
 
 
@@ -111,11 +122,22 @@ class PortableDispatcherEntrypoint:
         webhook_secret: str,
         coding_agent: Any,
         reviewer: Any,
+        github_persistence: GitHubControlBranchPersistence | None = None,
         store: FileDispatcherStore | None = None,
     ) -> None:
         self._control_root = control_root
         self._policy = policy
-        self._store = store or FileDispatcherStore(control_root)
+        self._github_persistence = github_persistence
+        if self._github_persistence is not None:
+            self._github_persistence.hydrate()
+        self._store = store or FileDispatcherStore(
+            control_root,
+            after_write=(
+                self._github_persistence.sync_paths
+                if self._github_persistence is not None
+                else None
+            ),
+        )
         self._coding_agent = coding_agent
         self._reviewer = reviewer
         self._dispatcher = GitHubEventDispatcher(
@@ -176,8 +198,59 @@ class PortableDispatcherEntrypoint:
         relative_directory: str,
         document: CorrespondenceDocument | RunEventDocument,
     ) -> str:
-        path = append_document(self._control_root, relative_directory, document)
+        path = append_document(
+            self._control_root,
+            relative_directory,
+            document,
+            after_write=(
+                self._github_persistence.sync_paths
+                if self._github_persistence is not None
+                else None
+            ),
+        )
         return str(path.relative_to(self._control_root.parent))
+
+    @staticmethod
+    def _automation_managed_issue(payload: dict[str, Any]) -> bool:
+        issue = payload.get("issue")
+        if not isinstance(issue, dict):
+            return False
+        body = issue.get("body")
+        return isinstance(body, str) and AUTOMATION_MARKER_PATTERN.search(body) is not None
+
+    def _validate_incoming_event(
+        self,
+        *,
+        event_name: str,
+        payload: dict[str, Any],
+        delivery_id: str,
+        source: str,
+        signature_sha256: str | None,
+        actions_authenticated: bool,
+        actions_workflow_ref: str | None,
+        event_action: str | None = None,
+        record_delivery: bool = True,
+    ) -> DispatcherOutcome | None:
+        repository = payload.get("repository")
+        sender = payload.get("sender")
+        repository_name = (
+            repository.get("full_name") if isinstance(repository, dict) else "[unknown repository]"
+        )
+        actor = sender.get("login") if isinstance(sender, dict) else "[unknown actor]"
+        event = DispatcherEvent(
+            delivery_id=delivery_id,
+            event_type=event_name,
+            source=source,
+            repository=str(repository_name),
+            actor=str(actor),
+            event_action=event_action if event_action is not None else payload.get("action"),
+            raw_body=json.dumps(payload, sort_keys=True).encode("utf-8"),
+            signature_sha256=signature_sha256,
+            actions_authenticated=actions_authenticated,
+            actions_workflow_ref=actions_workflow_ref,
+            payload=payload,
+        )
+        return self._dispatcher.validate_incoming_event(event, record_delivery=record_delivery)
 
     def _create_task_from_issue(self, payload: dict[str, Any]) -> tuple[str, str, tuple[str, ...]]:
         issue = payload.get("issue")
@@ -802,6 +875,23 @@ class PortableDispatcherEntrypoint:
 
         persisted: list[str] = []
         if event_name == DispatchEventType.ISSUES:
+            if self._automation_managed_issue(payload):
+                return EntrypointResult(
+                    action=DispatcherAction.NOOP,
+                    reason="ignored automation-managed issue event",
+                )
+            validation = self._validate_incoming_event(
+                event_name=event_name,
+                payload=payload,
+                delivery_id=delivery_id,
+                source=source,
+                signature_sha256=signature_sha256,
+                actions_authenticated=actions_authenticated,
+                actions_workflow_ref=actions_workflow_ref,
+                record_delivery=False,
+            )
+            if validation is not None:
+                return EntrypointResult(action=validation.action, reason=validation.reason)
             task_id, branch, created_paths = self._create_task_from_issue(payload)
             persisted.extend(created_paths)
             attempt = self._projection().tasks[task_id].current_attempt
@@ -880,6 +970,17 @@ class PortableDispatcherEntrypoint:
             )
 
         if event_name == DispatchEventType.PULL_REQUEST:
+            validation = self._validate_incoming_event(
+                event_name=event_name,
+                payload=payload,
+                delivery_id=delivery_id,
+                source=source,
+                signature_sha256=signature_sha256,
+                actions_authenticated=actions_authenticated,
+                actions_workflow_ref=actions_workflow_ref,
+            )
+            if validation is not None:
+                return EntrypointResult(action=validation.action, reason=validation.reason)
             persisted.extend(self._persist_copilot_result(payload))
             return EntrypointResult(
                 action=DispatcherAction.DISPATCHED if persisted else DispatcherAction.NOOP,
@@ -972,6 +1073,8 @@ def main(argv: list[str] | None = None) -> int:
 
     payload = json.loads(Path(arguments.event_path).read_text(encoding="utf-8"))
     env_allowlisted_actors = os.environ.get("DEVELOPMENT_AUTOMATION_ALLOWLISTED_ACTORS")
+    env_required_checks = os.environ.get("DEVELOPMENT_AUTOMATION_REQUIRED_CHECKS")
+    env_trusted_workflow_refs = os.environ.get("DEVELOPMENT_AUTOMATION_TRUSTED_WORKFLOW_REFS")
     allowlisted_actors = (
         tuple(arguments.allowlisted_actors)
         if arguments.allowlisted_actors
@@ -984,10 +1087,18 @@ def main(argv: list[str] | None = None) -> int:
     policy = DispatcherPolicy(
         allowlisted_repositories=(arguments.repository,),
         allowlisted_actors=allowlisted_actors,
-        expected_check_names=("ruff", "mypy", "pytest"),
-        trusted_workflow_refs=("trusted/workflow.yml@refs/heads/main",),
+        expected_check_names=(
+            _split_csv(env_required_checks) if env_required_checks else DEFAULT_REQUIRED_CHECK_NAMES
+        ),
+        trusted_workflow_refs=(
+            _split_csv(env_trusted_workflow_refs)
+            if env_trusted_workflow_refs
+            else DEFAULT_TRUSTED_WORKFLOW_REFS
+        ),
         trusted_actions_refs=(
-            (arguments.actions_workflow_ref,) if arguments.actions_workflow_ref else ()
+            (arguments.actions_workflow_ref,)
+            if arguments.actions_workflow_ref
+            else (DEFAULT_DISPATCHER_WORKFLOW_REF,)
         ),
     )
     coding_agent = GitHubCopilotCodingAgent(
@@ -998,12 +1109,26 @@ def main(argv: list[str] | None = None) -> int:
         api_key=os.environ["OPENAI_API_KEY"],
         model=arguments.openai_model,
     )
+    control_root = Path(arguments.control_root).resolve()
+    repository_root = Path.cwd().resolve()
+    github_persistence = GitHubControlBranchPersistence(
+        repository=arguments.repository,
+        token=os.environ["COPILOT_AGENT_TOKEN"],
+        repository_root=repository_root,
+        control_root=control_root,
+        branch=os.environ.get(
+            "DEVELOPMENT_AUTOMATION_CONTROL_BRANCH",
+            "copilot/development-automation-control",
+        ),
+        base_ref=os.environ.get("DEVELOPMENT_AUTOMATION_CONTROL_BASE_REF", "refs/heads/main"),
+    )
     entrypoint = PortableDispatcherEntrypoint(
-        control_root=Path(arguments.control_root),
+        control_root=control_root,
         policy=policy,
         webhook_secret=arguments.webhook_secret,
         coding_agent=coding_agent,
         reviewer=reviewer,
+        github_persistence=github_persistence,
     )
     outcome = entrypoint.handle_event(
         event_name=arguments.event_name,

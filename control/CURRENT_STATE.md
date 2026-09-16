@@ -21,7 +21,7 @@
 ## Available guarantees after Increment C
 
 - A portable dispatcher entrypoint can normalize trusted GitHub issue, comment, pull request, workflow-run, check, and push event families.
-- GitHub task dispatch persists append-only task, run, and dispatcher-intent evidence before and after live provider calls.
+- GitHub task dispatch persists append-only task, run, and dispatcher-intent evidence before and after live provider calls, and mirrors that state to `refs/heads/copilot/development-automation-control`.
 - Copilot task creation or assignment uses stable correlation markers so restart reconciliation does not create duplicate GitHub issues or duplicate assignments.
 - OpenAI review requests use bounded repository/task/PR/CI/control-doc context and require schema-validated structured output with one decision.
 - Retryable OpenAI provider failures do not persist review decisions, and the existing review intent is reset for a later exact-head retry.

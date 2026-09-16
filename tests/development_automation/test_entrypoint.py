@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from development_automation.dispatcher import DispatcherAction
@@ -20,6 +21,16 @@ from development_automation.schemas.v1 import (
     RunEventDocument,
 )
 from development_automation.storage import load_documents
+
+REQUIRED_CHECKS = ("checks", "docker", "gitleaks")
+TRUSTED_CI_REFS = (
+    "EricvanLessen/fictional-engine/.github/workflows/ci.yml@refs/heads/main",
+    "EricvanLessen/fictional-engine/.github/workflows/secret-scan.yml@refs/heads/main",
+)
+TRUSTED_DISPATCHER_REF = (
+    "EricvanLessen/fictional-engine/.github/workflows/development-automation-dispatcher.yml"
+    "@refs/heads/main"
+)
 
 
 class FakeCodingAgent:
@@ -110,9 +121,9 @@ def _policy() -> DispatcherPolicy:
     return DispatcherPolicy(
         allowlisted_repositories=("EricvanLessen/fictional-engine",),
         allowlisted_actors=("EricvanLessen", "ci-bot", "Copilot", "copilot-swe-agent"),
-        expected_check_names=("ruff", "mypy", "pytest"),
-        trusted_workflow_refs=("trusted/workflow.yml@refs/heads/main",),
-        trusted_actions_refs=("trusted/dispatcher.yml@refs/heads/main",),
+        expected_check_names=REQUIRED_CHECKS,
+        trusted_workflow_refs=TRUSTED_CI_REFS,
+        trusted_actions_refs=(TRUSTED_DISPATCHER_REF,),
     )
 
 
@@ -145,6 +156,14 @@ def _entrypoint(
         agent,
         fake_reviewer,
     )
+
+
+def _snapshot_control_tree(control_root: Path) -> dict[str, bytes]:
+    return {
+        str(path.relative_to(control_root)): path.read_bytes()
+        for path in sorted(control_root.rglob("*"))
+        if path.is_file()
+    }
 
 
 def _issue_payload(actor: str = "EricvanLessen") -> dict[str, object]:
@@ -195,25 +214,25 @@ def _check_payload(head_sha: str = "0123456789abcdef0123456789abcdef01234567") -
         },
         "checks": [
             {
-                "name": "ruff",
+                "name": "checks",
                 "status": "completed",
                 "conclusion": "success",
                 "head_sha": head_sha,
-                "workflow_ref": "trusted/workflow.yml@refs/heads/main",
+                "workflow_ref": TRUSTED_CI_REFS[0],
             },
             {
-                "name": "mypy",
+                "name": "docker",
                 "status": "completed",
                 "conclusion": "success",
                 "head_sha": head_sha,
-                "workflow_ref": "trusted/workflow.yml@refs/heads/main",
+                "workflow_ref": TRUSTED_CI_REFS[0],
             },
             {
-                "name": "pytest",
+                "name": "gitleaks",
                 "status": "completed",
                 "conclusion": "success",
                 "head_sha": head_sha,
-                "workflow_ref": "trusted/workflow.yml@refs/heads/main",
+                "workflow_ref": TRUSTED_CI_REFS[1],
             },
         ],
     }
@@ -226,13 +245,13 @@ def test_issue_replay_does_not_double_dispatch(tmp_path: Path) -> None:
         event_name="issues",
         payload=_issue_payload(),
         delivery_id="delivery-1",
-        actions_workflow_ref="trusted/dispatcher.yml@refs/heads/main",
+        actions_workflow_ref=TRUSTED_DISPATCHER_REF,
     )
     second = entrypoint.handle_event(
         event_name="issues",
         payload=_issue_payload(),
         delivery_id="delivery-1",
-        actions_workflow_ref="trusted/dispatcher.yml@refs/heads/main",
+        actions_workflow_ref=TRUSTED_DISPATCHER_REF,
     )
 
     assert first.action == DispatcherAction.DISPATCHED
@@ -247,12 +266,174 @@ def test_self_event_is_suppressed(tmp_path: Path) -> None:
         event_name="issues",
         payload=_issue_payload(actor="github-actions[bot]"),
         delivery_id="delivery-self",
-        actions_workflow_ref="trusted/dispatcher.yml@refs/heads/main",
+        actions_workflow_ref=TRUSTED_DISPATCHER_REF,
     )
 
     assert result.action == DispatcherAction.NOOP
     assert "ignored" in result.reason
     assert agent.dispatch_calls == []
+
+
+def test_automation_managed_issue_keeps_control_tree_unchanged(tmp_path: Path) -> None:
+    entrypoint, agent, _ = _entrypoint(tmp_path)
+    baseline = _snapshot_control_tree(tmp_path / "control")
+
+    result = entrypoint.handle_event(
+        event_name="issues",
+        payload={
+            "action": "opened",
+            "repository": {"full_name": "EricvanLessen/fictional-engine"},
+            "sender": {"login": "copilot-swe-agent"},
+            "issue": {
+                "number": 202,
+                "title": "[task-0010] Copilot implementation request",
+                "body": (
+                    "<!-- development-automation:correlation_id:corr-202 -->\n"
+                    "<!-- development-automation:repository:EricvanLessen/fictional-engine -->\n"
+                    "# Copilot implementation request\n"
+                ),
+            },
+        },
+        delivery_id="delivery-automation-managed",
+        actions_workflow_ref=TRUSTED_DISPATCHER_REF,
+    )
+
+    assert result.action == DispatcherAction.NOOP
+    assert "automation-managed" in result.reason
+    assert agent.dispatch_calls == []
+    assert _snapshot_control_tree(tmp_path / "control") == baseline
+
+
+def test_untrusted_issue_event_leaves_control_tree_unchanged(tmp_path: Path) -> None:
+    entrypoint, _, _ = _entrypoint(tmp_path)
+    baseline = _snapshot_control_tree(tmp_path / "control")
+
+    result = entrypoint.handle_event(
+        event_name="issues",
+        payload={
+            "action": "opened",
+            "repository": {"full_name": "someone/fork"},
+            "sender": {"login": "EricvanLessen"},
+            "issue": {
+                "number": 9,
+                "title": "Increment C live adapters",
+                "body": "Please use branch `feat/development-automation-live-adapters`.",
+            },
+        },
+        delivery_id="delivery-untrusted-repo",
+        actions_workflow_ref=TRUSTED_DISPATCHER_REF,
+    )
+
+    assert result.action == DispatcherAction.NOOP
+    assert "allowlisted" in result.reason
+    assert _snapshot_control_tree(tmp_path / "control") == baseline
+
+
+def test_untrusted_actor_leaves_control_tree_unchanged(tmp_path: Path) -> None:
+    entrypoint, _, _ = _entrypoint(tmp_path)
+    baseline = _snapshot_control_tree(tmp_path / "control")
+
+    result = entrypoint.handle_event(
+        event_name="issues",
+        payload={
+            "action": "opened",
+            "repository": {"full_name": "EricvanLessen/fictional-engine"},
+            "sender": {"login": "someone-else"},
+            "issue": {
+                "number": 9,
+                "title": "Increment C live adapters",
+                "body": "Please use branch `feat/development-automation-live-adapters`.",
+            },
+        },
+        delivery_id="delivery-untrusted-actor",
+        actions_workflow_ref=TRUSTED_DISPATCHER_REF,
+    )
+
+    assert result.action == DispatcherAction.NOOP
+    assert "allowlisted" in result.reason
+    assert _snapshot_control_tree(tmp_path / "control") == baseline
+
+
+def test_ineligible_issue_action_leaves_control_tree_unchanged(tmp_path: Path) -> None:
+    entrypoint, _, _ = _entrypoint(tmp_path)
+    baseline = _snapshot_control_tree(tmp_path / "control")
+
+    result = entrypoint.handle_event(
+        event_name="issues",
+        payload={
+            "action": "closed",
+            "repository": {"full_name": "EricvanLessen/fictional-engine"},
+            "sender": {"login": "EricvanLessen"},
+            "issue": {
+                "number": 9,
+                "title": "Increment C live adapters",
+                "body": "Please use branch `feat/development-automation-live-adapters`.",
+            },
+        },
+        delivery_id="delivery-closed-issue",
+        actions_workflow_ref=TRUSTED_DISPATCHER_REF,
+    )
+
+    assert result.action == DispatcherAction.NOOP
+    assert "not eligible" in result.reason
+    assert _snapshot_control_tree(tmp_path / "control") == baseline
+
+
+def test_untrusted_dispatcher_workflow_leaves_pull_request_state_unchanged(tmp_path: Path) -> None:
+    entrypoint, _, _ = _entrypoint(tmp_path)
+    entrypoint.handle_event(
+        event_name="issues",
+        payload=_issue_payload(),
+        delivery_id="delivery-issue",
+        actions_workflow_ref=TRUSTED_DISPATCHER_REF,
+    )
+    baseline = _snapshot_control_tree(tmp_path / "control")
+
+    result = entrypoint.handle_event(
+        event_name="pull_request",
+        payload=_pull_request_payload(),
+        delivery_id="delivery-untrusted-pr",
+        actions_workflow_ref="untrusted/ref.yml@refs/heads/main",
+    )
+
+    assert result.action == DispatcherAction.NOOP
+    assert "not trusted" in result.reason
+    assert _snapshot_control_tree(tmp_path / "control") == baseline
+
+
+def test_realistic_repository_workflow_payload_unlocks_ci_gate(tmp_path: Path) -> None:
+    entrypoint, _, reviewer = _entrypoint(tmp_path)
+    entrypoint.handle_event(
+        event_name="issues",
+        payload=_issue_payload(),
+        delivery_id="delivery-issue",
+        actions_workflow_ref=TRUSTED_DISPATCHER_REF,
+    )
+    entrypoint.handle_event(
+        event_name="pull_request",
+        payload=_pull_request_payload(),
+        delivery_id="delivery-pr",
+        actions_workflow_ref=TRUSTED_DISPATCHER_REF,
+    )
+
+    payload = json.loads(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures"
+            / "development_automation"
+            / "github_event_workflow_run_ci_completed.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    result = entrypoint.handle_event(
+        event_name="workflow_run",
+        payload=payload,
+        delivery_id="delivery-ci-realistic",
+        actions_workflow_ref=TRUSTED_DISPATCHER_REF,
+    )
+
+    assert result.action == DispatcherAction.CI_READY
+    assert reviewer.calls == 1
 
 
 def test_single_cycle_stops_after_second_task_created(tmp_path: Path) -> None:
@@ -262,19 +443,19 @@ def test_single_cycle_stops_after_second_task_created(tmp_path: Path) -> None:
         event_name="issues",
         payload=_issue_payload(),
         delivery_id="delivery-issue",
-        actions_workflow_ref="trusted/dispatcher.yml@refs/heads/main",
+        actions_workflow_ref=TRUSTED_DISPATCHER_REF,
     )
     pr_result = entrypoint.handle_event(
         event_name="pull_request",
         payload=_pull_request_payload(),
         delivery_id="delivery-pr",
-        actions_workflow_ref="trusted/dispatcher.yml@refs/heads/main",
+        actions_workflow_ref=TRUSTED_DISPATCHER_REF,
     )
     ci_result = entrypoint.handle_event(
         event_name="workflow_run",
         payload=_check_payload(),
         delivery_id="delivery-ci",
-        actions_workflow_ref="trusted/dispatcher.yml@refs/heads/main",
+        actions_workflow_ref=TRUSTED_DISPATCHER_REF,
     )
 
     assert issue_result.action == DispatcherAction.DISPATCHED
@@ -306,7 +487,7 @@ def test_single_cycle_stops_after_second_task_created(tmp_path: Path) -> None:
             "comment": {"body": "task-0010 please continue"},
         },
         delivery_id="delivery-second-task",
-        actions_workflow_ref="trusted/dispatcher.yml@refs/heads/main",
+        actions_workflow_ref=TRUSTED_DISPATCHER_REF,
     )
     assert second_task_comment.action == DispatcherAction.NOOP
     assert "SECOND_TASK_CREATED" in second_task_comment.reason
@@ -319,20 +500,20 @@ def test_ci_head_binding_prevents_review(tmp_path: Path) -> None:
         event_name="issues",
         payload=_issue_payload(),
         delivery_id="delivery-issue",
-        actions_workflow_ref="trusted/dispatcher.yml@refs/heads/main",
+        actions_workflow_ref=TRUSTED_DISPATCHER_REF,
     )
     entrypoint.handle_event(
         event_name="pull_request",
         payload=_pull_request_payload(),
         delivery_id="delivery-pr",
-        actions_workflow_ref="trusted/dispatcher.yml@refs/heads/main",
+        actions_workflow_ref=TRUSTED_DISPATCHER_REF,
     )
 
     result = entrypoint.handle_event(
         event_name="workflow_run",
         payload=_check_payload(head_sha="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
         delivery_id="delivery-ci",
-        actions_workflow_ref="trusted/dispatcher.yml@refs/heads/main",
+        actions_workflow_ref=TRUSTED_DISPATCHER_REF,
     )
 
     assert result.action == DispatcherAction.NOOP
@@ -348,20 +529,20 @@ def test_review_rate_limit_is_retryable_without_persisting_review(tmp_path: Path
         event_name="issues",
         payload=_issue_payload(),
         delivery_id="delivery-issue",
-        actions_workflow_ref="trusted/dispatcher.yml@refs/heads/main",
+        actions_workflow_ref=TRUSTED_DISPATCHER_REF,
     )
     entrypoint.handle_event(
         event_name="pull_request",
         payload=_pull_request_payload(),
         delivery_id="delivery-pr",
-        actions_workflow_ref="trusted/dispatcher.yml@refs/heads/main",
+        actions_workflow_ref=TRUSTED_DISPATCHER_REF,
     )
 
     limited = entrypoint.handle_event(
         event_name="workflow_run",
         payload=_check_payload(),
         delivery_id="delivery-ci-1",
-        actions_workflow_ref="trusted/dispatcher.yml@refs/heads/main",
+        actions_workflow_ref=TRUSTED_DISPATCHER_REF,
     )
 
     assert limited.action == DispatcherAction.NOOP
@@ -377,7 +558,7 @@ def test_review_rate_limit_is_retryable_without_persisting_review(tmp_path: Path
         event_name="workflow_run",
         payload=_check_payload(),
         delivery_id="delivery-ci-2",
-        actions_workflow_ref="trusted/dispatcher.yml@refs/heads/main",
+        actions_workflow_ref=TRUSTED_DISPATCHER_REF,
     )
 
     assert retried.action == DispatcherAction.CI_READY

@@ -39,6 +39,13 @@ class ProviderDispatchResult:
     task_url: str | None = None
 
 
+@dataclass(frozen=True)
+class CopilotAssignmentContext:
+    issue_node_id: str
+    actor_ids: tuple[str, ...]
+    copilot_actor_id: str | None
+
+
 class PullRequestMetadata(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -241,6 +248,7 @@ class GitHubCopilotCodingAgent:
         self._base_url = base_url.rstrip("/")
         self._copilot_assignee = copilot_assignee
         self._client = http_client or httpx.Client(timeout=timeout_seconds)
+        self._copilot_actor_id: str | None = None
 
     def _headers(self, *, accept: str = "application/vnd.github+json") -> dict[str, str]:
         return {
@@ -283,6 +291,23 @@ class GitHubCopilotCodingAgent:
         if response.status_code >= 400:
             raise ProviderResponseError(f"GitHub returned HTTP {response.status_code} for {path}")
         return response
+
+    def _graphql(self, query: str, variables: dict[str, object]) -> dict[str, Any]:
+        response = self._request(
+            "POST",
+            "/graphql",
+            json_body={"query": query, "variables": variables},
+        )
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise ProviderResponseError("GitHub GraphQL response must be an object")
+        errors = payload.get("errors")
+        if isinstance(errors, list) and errors:
+            raise ProviderResponseError("GitHub GraphQL returned errors")
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            raise ProviderResponseError("GitHub GraphQL response is missing data")
+        return data
 
     def _find_issue_by_correlation(self, correlation_id: str) -> dict[str, Any] | None:
         marker = self._marker("correlation_id", correlation_id)
@@ -351,6 +376,144 @@ class GitHubCopilotCodingAgent:
                 return True
         return False
 
+    def _assignment_context(self, issue_number: int) -> CopilotAssignmentContext:
+        data = self._graphql(
+            """
+            query CopilotAssignableIssue($owner: String!, $repo: String!, $number: Int!) {
+              repository(owner: $owner, name: $repo) {
+                issue(number: $number) {
+                  id
+                  assignees(first: 20) {
+                    nodes {
+                      __typename
+                      ... on User {
+                        id
+                        login
+                      }
+                      ... on Bot {
+                        id
+                        login
+                      }
+                      ... on Organization {
+                        id
+                        login
+                      }
+                      ... on Mannequin {
+                        id
+                        login
+                      }
+                    }
+                  }
+                  suggestedActors(capabilities: [CAN_BE_ASSIGNED], first: 20) {
+                    nodes {
+                      __typename
+                      ... on User {
+                        id
+                        login
+                      }
+                      ... on Bot {
+                        id
+                        login
+                      }
+                      ... on Organization {
+                        id
+                        login
+                      }
+                      ... on Mannequin {
+                        id
+                        login
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            """,
+            {"owner": self._owner, "repo": self._repo, "number": issue_number},
+        )
+        repository = data.get("repository")
+        if not isinstance(repository, dict):
+            raise ProviderResponseError("GitHub GraphQL response is missing repository")
+        issue = repository.get("issue")
+        if not isinstance(issue, dict):
+            raise ProviderResponseError("GitHub GraphQL response is missing issue")
+        issue_node_id = issue.get("id")
+        if not isinstance(issue_node_id, str) or not issue_node_id:
+            raise ProviderResponseError("GitHub GraphQL issue is missing node ID")
+
+        actor_ids: list[str] = []
+        assignees = issue.get("assignees")
+        if isinstance(assignees, dict):
+            nodes = assignees.get("nodes")
+            if isinstance(nodes, list):
+                for node in nodes:
+                    if not isinstance(node, dict):
+                        continue
+                    actor_id = node.get("id")
+                    if isinstance(actor_id, str) and actor_id:
+                        actor_ids.append(actor_id)
+
+        copilot_actor_id: str | None = None
+        suggested_actors = issue.get("suggestedActors")
+        if isinstance(suggested_actors, dict):
+            nodes = suggested_actors.get("nodes")
+            if isinstance(nodes, list):
+                for node in nodes:
+                    if not isinstance(node, dict):
+                        continue
+                    if node.get("__typename") != "Bot":
+                        continue
+                    if node.get("login") != self._copilot_assignee:
+                        continue
+                    actor_id = node.get("id")
+                    if isinstance(actor_id, str) and actor_id:
+                        copilot_actor_id = actor_id
+                        break
+
+        if copilot_actor_id is None:
+            copilot_actor_id = self._copilot_actor_id
+        else:
+            self._copilot_actor_id = copilot_actor_id
+
+        return CopilotAssignmentContext(
+            issue_node_id=issue_node_id,
+            actor_ids=tuple(actor_ids),
+            copilot_actor_id=copilot_actor_id,
+        )
+
+    def _assign_copilot(self, issue_number: int) -> None:
+        assignment = self._assignment_context(issue_number)
+        if assignment.copilot_actor_id is None:
+            raise ProviderResponseError("GitHub GraphQL did not return the Copilot assignee bot")
+        actor_ids = tuple(
+            dict.fromkeys((*assignment.actor_ids, assignment.copilot_actor_id))
+        )
+        self._graphql(
+            """
+            mutation ReplaceActorsForAssignable(
+              $assignableId: ID!
+              $actorIds: [ID!]!
+            ) {
+              replaceActorsForAssignable(
+                input: {
+                  assignableId: $assignableId
+                  actorIds: $actorIds
+                }
+              ) {
+                assignable {
+                  ... on Issue {
+                    id
+                  }
+                }
+              }
+            }
+            """,
+            {
+                "assignableId": assignment.issue_node_id,
+                "actorIds": list(actor_ids),
+            },
+        )
+
     def create_or_update_task(
         self,
         *,
@@ -400,11 +563,7 @@ class GitHubCopilotCodingAgent:
             number = result.task_number
             if number is None:
                 raise ProviderResponseError("GitHub issue response is missing issue number")
-            self._request(
-                "POST",
-                f"/repos/{self._owner}/{self._repo}/issues/{number}/assignees",
-                json_body={"assignees": [self._copilot_assignee]},
-            )
+            self._assign_copilot(number)
 
         return ProviderDispatchResult(
             correlation_id=correlation_id,

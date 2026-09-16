@@ -1,0 +1,103 @@
+name: Development Automation Dispatcher
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+  issue_comment:
+    types: [created, edited]
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+  workflow_run:
+    workflows: ["CI", "Secret Scan"]
+    types: [completed]
+  check_run:
+    types: [completed]
+
+permissions:
+  actions: read
+  checks: read
+  contents: write
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: development-automation-dispatcher
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    env:
+      DEVELOPMENT_AUTOMATION_ALLOWLISTED_ACTORS: EricvanLessen,Copilot,copilot-swe-agent
+      DEVELOPMENT_AUTOMATION_REQUIRED_CHECKS: checks,docker,gitleaks
+      DEVELOPMENT_AUTOMATION_TRUSTED_WORKFLOW_REFS: >-
+        EricvanLessen/fictional-engine/.github/workflows/ci.yml@refs/heads/main,
+        EricvanLessen/fictional-engine/.github/workflows/secret-scan.yml@refs/heads/main
+      DEVELOPMENT_AUTOMATION_CONTROL_BRANCH: copilot/development-automation-control
+      DEVELOPMENT_AUTOMATION_CONTROL_BASE_REF: refs/heads/main
+      EVENT_PATH: ${{ runner.temp }}/development-automation-event.json
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .[dev]
+
+      - name: Prepare dispatcher payload
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("fs");
+            const payload = JSON.parse(JSON.stringify(context.payload));
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const trustedRefs = {
+              checks: `${owner}/${repo}/.github/workflows/ci.yml@refs/heads/main`,
+              docker: `${owner}/${repo}/.github/workflows/ci.yml@refs/heads/main`,
+              gitleaks: `${owner}/${repo}/.github/workflows/secret-scan.yml@refs/heads/main`,
+            };
+            const headSha =
+              payload.workflow_run?.head_sha ??
+              payload.check_run?.head_sha ??
+              payload.pull_request?.head?.sha ??
+              null;
+            if ((context.eventName === "workflow_run" || context.eventName === "check_run") && headSha) {
+              const checkRuns = await github.paginate(github.rest.checks.listForRef, {
+                owner,
+                repo,
+                ref: headSha,
+                per_page: 100,
+              });
+              payload.checks = checkRuns
+                .filter((checkRun) => Object.hasOwn(trustedRefs, checkRun.name))
+                .map((checkRun) => ({
+                  name: checkRun.name,
+                  status: checkRun.status,
+                  conclusion: checkRun.conclusion,
+                  head_sha: checkRun.head_sha,
+                  workflow_ref: trustedRefs[checkRun.name],
+                }));
+            }
+            fs.writeFileSync(process.env.EVENT_PATH, JSON.stringify(payload));
+
+      - name: Run dispatcher
+        env:
+          COPILOT_AGENT_TOKEN: ${{ secrets.COPILOT_AGENT_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          development-automation-dispatch \
+            --event-name "${{ github.event_name }}" \
+            --event-path "$EVENT_PATH" \
+            --control-root "$PWD/control" \
+            --repository "${{ github.repository }}" \
+            --delivery-id "${{ github.run_id }}-${{ github.run_attempt }}" \
+            --source actions \
+            --actions-workflow-ref "${{ github.workflow_ref }}"

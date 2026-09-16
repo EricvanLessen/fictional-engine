@@ -13,6 +13,7 @@ from development_automation.dispatcher_models import (
 )
 from development_automation.dispatcher_store import DispatchIntent, FileDispatcherStore
 from development_automation.entrypoint import EntrypointResult, PortableDispatcherEntrypoint
+from development_automation.github_persistence import GitHubControlBranchPersistence
 from development_automation.live_adapters import (
     GitHubCopilotCodingAgent,
     OpenAIReviewAdapter,
@@ -64,6 +65,7 @@ __all__ = [
     "EntrypointResult",
     "EventSource",
     "FileDispatcherStore",
+    "GitHubControlBranchPersistence",
     "GitHubCopilotCodingAgent",
     "GitHubEventDispatcher",
     "LifecycleState",

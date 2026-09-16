@@ -6,7 +6,7 @@ Remove Eric from the ChatGPT to VS Code Copilot relay for bounded implementation
 
 ## Authoritative control ref
 
-Both agents read and write the control-plane protocol against `refs/heads/main`. Feature branches may stage changes for review, but `main` remains the single authoritative GitHub control ref.
+Both agents read and write append-only control state against `refs/heads/copilot/development-automation-control`. Feature branches still stage code changes for review, while `main` remains the authoritative source for workflow code and policy.
 
 ## Increment boundary
 
@@ -21,7 +21,7 @@ This increment must still stop after persisting creation of the second task. Tas
 
 ## Stop rule
 
-Increment A must stop after persisting creation of the second task. The persisted stop reason is `SECOND_TASK_CREATED`. Task two may exist as an auditable follow-up artifact, but it must not be dispatched in this milestone.
+Increment C must stop after persisting creation of the second task. The persisted stop reason is `SECOND_TASK_CREATED`. Task two may exist as an auditable follow-up artifact, but it must not be dispatched in this milestone.
 
 ## Safety boundary
 

@@ -132,6 +132,8 @@ class GitHubEventDispatcher:
             },
             DispatchEventType.ISSUES: {"opened", "edited", "reopened"},
             DispatchEventType.ISSUE_COMMENT: {"created", "edited"},
+            DispatchEventType.WORKFLOW_RUN: {"completed"},
+            DispatchEventType.CHECK_RUN: {"completed"},
         }
         allowed = eligible_actions.get(event.event_type)
         if allowed is None:
@@ -144,6 +146,28 @@ class GitHubEventDispatcher:
             comment_body = (event.comment_body or "").lower()
             if event.task_id is None or event.task_id.lower() not in comment_body:
                 raise DispatcherPolicyError("issue comment is not bound to the task ID")
+
+    def validate_incoming_event(
+        self,
+        event: DispatcherEvent,
+        *,
+        record_delivery: bool = True,
+    ) -> DispatcherOutcome | None:
+        if self._stop_boundary_reached():
+            return DispatcherOutcome(
+                action=DispatcherAction.NOOP,
+                reason="SECOND_TASK_CREATED stop boundary is active",
+            )
+        try:
+            self._validate_transport(event)
+            self._validate_policy(event)
+            if event.event_type != DispatchEventType.PUSH:
+                self._validate_dispatch_action(event)
+        except DispatcherPolicyError as exc:
+            return DispatcherOutcome(action=DispatcherAction.NOOP, reason=str(exc))
+        if record_delivery and not self._store.remember_delivery(event.delivery_id):
+            return DispatcherOutcome(action=DispatcherAction.NOOP, reason="duplicate delivery id")
+        return None
 
     def _validate_task_binding_for_dispatch(self, event: DispatcherEvent) -> None:
         projection = self._load_projection()
@@ -314,20 +338,9 @@ class GitHubEventDispatcher:
         )
 
     def process_event(self, event: DispatcherEvent) -> DispatcherOutcome:
-        if self._stop_boundary_reached():
-            return DispatcherOutcome(
-                action=DispatcherAction.NOOP,
-                reason="SECOND_TASK_CREATED stop boundary is active",
-            )
-
-        try:
-            self._validate_transport(event)
-            self._validate_policy(event)
-        except DispatcherPolicyError as exc:
-            return DispatcherOutcome(action=DispatcherAction.NOOP, reason=str(exc))
-
-        if not self._store.remember_delivery(event.delivery_id):
-            return DispatcherOutcome(action=DispatcherAction.NOOP, reason="duplicate delivery id")
+        ingress_outcome = self.validate_incoming_event(event)
+        if ingress_outcome is not None:
+            return ingress_outcome
 
         if event.event_type in {
             DispatchEventType.PUSH,

@@ -98,6 +98,10 @@ def _message_id(prefix: str, *parts: object) -> str:
     return f"msg-{prefix}-{digest}"
 
 
+def _split_csv(value: str) -> tuple[str, ...]:
+    return tuple(item.strip() for item in value.split(",") if item.strip())
+
+
 class PortableDispatcherEntrypoint:
     def __init__(
         self,
@@ -157,6 +161,15 @@ class PortableDispatcherEntrypoint:
             if latest is None or document.created_at > latest.created_at:
                 latest = document
         return latest.body if latest is not None else ""
+
+    def _message_exists(self, message_id: str) -> bool:
+        messages_dir = self._control_root / "messages"
+        if not messages_dir.exists():
+            return False
+        for document in load_documents(messages_dir):
+            if isinstance(document, CorrespondenceDocument) and document.message_id == message_id:
+                return True
+        return False
 
     def _append(
         self,
@@ -713,8 +726,9 @@ class PortableDispatcherEntrypoint:
             created_at=created_at + timedelta(seconds=3),
             body=f"# {result.next_task_title}\n\n{result.next_task_body}\n",
         )
-        if claimed or next_intent.status == "claimed":
+        if claimed or not self._message_exists(next_message.message_id):
             persisted.append(self._append("messages", next_message))
+        if claimed or next_intent.status == "claimed":
             running_next = self._store.transition_intent(
                 next_intent.intent_id,
                 "running",
@@ -945,12 +959,31 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--webhook-secret", default="")
     parser.add_argument("--actions-workflow-ref", default=None)
     parser.add_argument("--openai-model", default="gpt-5-mini")
+    parser.add_argument(
+        "--allowlisted-actors",
+        nargs="+",
+        default=None,
+        help=(
+            "Explicit GitHub actor allowlist. Falls back to "
+            "DEVELOPMENT_AUTOMATION_ALLOWLISTED_ACTORS."
+        ),
+    )
     arguments = parser.parse_args(argv)
 
     payload = json.loads(Path(arguments.event_path).read_text(encoding="utf-8"))
+    env_allowlisted_actors = os.environ.get("DEVELOPMENT_AUTOMATION_ALLOWLISTED_ACTORS")
+    allowlisted_actors = (
+        tuple(arguments.allowlisted_actors)
+        if arguments.allowlisted_actors
+        else _split_csv(env_allowlisted_actors) if env_allowlisted_actors else ()
+    )
+    if not allowlisted_actors:
+        parser.error(
+            "provide --allowlisted-actors or DEVELOPMENT_AUTOMATION_ALLOWLISTED_ACTORS"
+        )
     policy = DispatcherPolicy(
         allowlisted_repositories=(arguments.repository,),
-        allowlisted_actors=("EricvanLessen", "ci-bot", "Copilot", "copilot-swe-agent"),
+        allowlisted_actors=allowlisted_actors,
         expected_check_names=("ruff", "mypy", "pytest"),
         trusted_workflow_refs=("trusted/workflow.yml@refs/heads/main",),
         trusted_actions_refs=(

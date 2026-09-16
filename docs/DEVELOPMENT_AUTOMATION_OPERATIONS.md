@@ -4,6 +4,7 @@
 
 - `COPILOT_AGENT_TOKEN`
 - `OPENAI_API_KEY`
+- `DEVELOPMENT_AUTOMATION_ALLOWLISTED_ACTORS`
 
 Store both as GitHub Actions secrets or local environment variables. Never write them into `control/` documents, `.env`, logs, or committed fixtures.
 
@@ -19,7 +20,8 @@ development-automation-dispatch \
   --repository EricvanLessen/fictional-engine \
   --delivery-id delivery-123 \
   --source actions \
-  --actions-workflow-ref trusted/dispatcher.yml@refs/heads/main
+  --actions-workflow-ref trusted/dispatcher.yml@refs/heads/main \
+  --allowlisted-actors EricvanLessen ci-bot Copilot copilot-swe-agent
 ```
 
 ## Event handling summary

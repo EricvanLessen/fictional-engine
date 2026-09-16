@@ -379,3 +379,9 @@ def test_canonical_flow_sets_global_second_task_stop() -> None:
 
     assert projection.stop_reason == STOP_REASON_SECOND_TASK_CREATED
     assert projection.task_order == ("task-0042", "task-0043")
+
+
+def test_copilot_result_persists_pull_request_identity() -> None:
+    projection = reduce_run_events(_load_run_events())
+
+    assert projection.tasks["task-0042"].pull_request_number == 999

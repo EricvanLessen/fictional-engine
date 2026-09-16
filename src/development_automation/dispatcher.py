@@ -179,12 +179,20 @@ class GitHubEventDispatcher:
             raise DispatcherPolicyError("task has no persisted expected head SHA")
         if event.head_sha != task.expected_head_sha:
             raise DispatcherPolicyError("event head SHA does not match persisted expected head")
+        if task.pull_request_number is None:
+            raise DispatcherPolicyError("task has no persisted pull request identity")
+        if event.pull_request_number is None:
+            raise DispatcherPolicyError("missing pull request number")
+        if event.pull_request_number != task.pull_request_number:
+            raise DispatcherPolicyError("event pull request number does not match persisted task")
         return task.expected_head_sha
 
     def _handle_dispatch_intent(self, event: DispatcherEvent) -> DispatcherOutcome:
         self._validate_dispatch_action(event)
         self._validate_task_binding_for_dispatch(event)
-        dedupe_key = f"dispatch:{event.semantic_key()}"
+        dedupe_key = (
+            f"dispatch:{event.repository}:{event.task_id}:{event.attempt}:{event.branch}"
+        )
         intent, claimed = self._store.claim_intent(
             dedupe_key=dedupe_key,
             operation="dispatch-task",

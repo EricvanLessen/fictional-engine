@@ -91,6 +91,7 @@ def _dispatch_event(
     task_id: str = "task-0042",
     head_sha: str = "a" * 40,
     branch: str = "feat/development-automation-protocol",
+    pull_request_number: int | None = None,
     event_action: str | None = "opened",
     attempt: int = 1,
     comment_body: str | None = None,
@@ -105,6 +106,7 @@ def _dispatch_event(
         task_id=task_id,
         attempt=attempt,
         branch=branch,
+        pull_request_number=pull_request_number,
         head_sha=head_sha,
         comment_body=comment_body,
         raw_body=body,
@@ -297,7 +299,7 @@ def test_dispatch_rejects_unrelated_issue_comment(tmp_path: Path) -> None:
     assert len(agent.dispatch_calls) == 0
 
 
-def test_semantically_different_comments_are_not_deduped(tmp_path: Path) -> None:
+def test_semantically_different_comments_same_task_attempt_dispatch_once(tmp_path: Path) -> None:
     agent = MockCodingAgent()
     dispatcher = _dispatcher(tmp_path, agent)
     _append_run_events_for_state(tmp_path / "control", "ready")
@@ -326,8 +328,44 @@ def test_semantically_different_comments_are_not_deduped(tmp_path: Path) -> None
     second_outcome = dispatcher.process_event(second)
 
     assert first_outcome.action == DispatcherAction.DISPATCHED
-    assert second_outcome.action == DispatcherAction.DISPATCHED
-    assert len(agent.dispatch_calls) == 2
+    assert second_outcome.action == DispatcherAction.NOOP
+    assert "duplicate dispatch intent" in second_outcome.reason
+    assert len(agent.dispatch_calls) == 1
+
+
+def test_pr_open_then_issue_comment_same_attempt_dispatch_once(tmp_path: Path) -> None:
+    agent = MockCodingAgent()
+    dispatcher = _dispatcher(tmp_path, agent)
+    _append_run_events_for_state(tmp_path / "control", "ready")
+
+    pr_body = b'{"action":"opened"}'
+    comment_body = b'{"action":"created"}'
+    pr_event = _dispatch_event(
+        delivery_id="delivery-pr-open",
+        event_type=DispatchEventType.PULL_REQUEST,
+        source=EventSource.WEBHOOK,
+        body=pr_body,
+        signature=_signature("secret", pr_body),
+        pull_request_number=999,
+        event_action="opened",
+    )
+    comment_event = _dispatch_event(
+        delivery_id="delivery-pr-comment",
+        event_type=DispatchEventType.ISSUE_COMMENT,
+        source=EventSource.WEBHOOK,
+        body=comment_body,
+        signature=_signature("secret", comment_body),
+        event_action="created",
+        comment_body="task-0042 please continue",
+    )
+
+    first = dispatcher.process_event(pr_event)
+    second = dispatcher.process_event(comment_event)
+
+    assert first.action == DispatcherAction.DISPATCHED
+    assert second.action == DispatcherAction.NOOP
+    assert "duplicate dispatch intent" in second.reason
+    assert len(agent.dispatch_calls) == 1
 
 
 def test_ci_gate_requires_projection_expected_head(tmp_path: Path) -> None:
@@ -347,6 +385,7 @@ def test_ci_gate_requires_projection_expected_head(tmp_path: Path) -> None:
         event_action="completed",
         task_id="task-0042",
         attempt=1,
+        pull_request_number=999,
         head_sha=expected_head,
         branch="feat/development-automation-protocol",
         checks=checks,
@@ -375,6 +414,7 @@ def test_ci_rejects_unknown_task(tmp_path: Path) -> None:
         event_action="completed",
         task_id="task-9999",
         attempt=1,
+        pull_request_number=999,
         head_sha=expected_head,
         branch="feat/development-automation-protocol",
         checks=_ci_checks(expected_head),
@@ -405,6 +445,7 @@ def test_ci_rejects_event_head_mismatch_vs_persisted_expected_head(tmp_path: Pat
         event_action="completed",
         task_id="task-0042",
         attempt=1,
+        pull_request_number=999,
         head_sha=event_head,
         branch="feat/development-automation-protocol",
         checks=_ci_checks(event_head),
@@ -435,6 +476,7 @@ def test_ci_rejects_stale_attempt(tmp_path: Path) -> None:
         event_action="completed",
         task_id="task-0042",
         attempt=2,
+        pull_request_number=999,
         head_sha=expected_head,
         branch="feat/development-automation-protocol",
         checks=_ci_checks(expected_head),
@@ -464,6 +506,7 @@ def test_ci_rejects_correct_checks_for_wrong_branch(tmp_path: Path) -> None:
         event_action="completed",
         task_id="task-0042",
         attempt=1,
+        pull_request_number=999,
         head_sha=expected_head,
         branch="feat/other-branch",
         checks=_ci_checks(expected_head),
@@ -475,6 +518,36 @@ def test_ci_rejects_correct_checks_for_wrong_branch(tmp_path: Path) -> None:
 
     assert outcome.action == DispatcherAction.NOOP
     assert "branch" in outcome.reason
+
+
+def test_ci_rejects_correct_checks_for_wrong_pull_request_number(tmp_path: Path) -> None:
+    agent = MockCodingAgent()
+    dispatcher = _dispatcher(tmp_path, agent)
+    _append_run_events_for_state(tmp_path / "control", "waiting_for_ci")
+
+    body = b'{"action":"completed"}'
+    expected_head = "0123456789abcdef0123456789abcdef01234567"
+    event = DispatcherEvent(
+        delivery_id="delivery-ci-wrong-pr",
+        event_type=DispatchEventType.CHECK_RUN,
+        source=EventSource.WEBHOOK,
+        repository="EricvanLessen/fictional-engine",
+        actor="ci-bot",
+        event_action="completed",
+        task_id="task-0042",
+        attempt=1,
+        pull_request_number=123,
+        head_sha=expected_head,
+        branch="feat/development-automation-protocol",
+        checks=_ci_checks(expected_head),
+        raw_body=body,
+        signature_sha256=_signature("secret", body),
+    )
+
+    outcome = dispatcher.process_event(event)
+
+    assert outcome.action == DispatcherAction.NOOP
+    assert "pull request number" in outcome.reason
 
 
 def test_untrusted_actions_and_fork_repo_are_ignored(tmp_path: Path) -> None:

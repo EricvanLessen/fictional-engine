@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field, replace
 
 from development_automation.errors import (
@@ -37,6 +38,7 @@ class TaskProjection:
     ci_conclusion: str | None = None
     accepted_criteria: tuple[str, ...] = ()
     expected_head_sha: str | None = None
+    pull_request_number: int | None = None
     stop_reason: str | None = None
 
 
@@ -129,6 +131,15 @@ def _ensure_state(task: TaskProjection, expected: LifecycleState, event: RunEven
         )
 
 
+def _extract_pull_request_number(pull_request_url: str | None) -> int | None:
+    if pull_request_url is None:
+        return None
+    match = re.search(r"/pull/(\d+)$", pull_request_url)
+    if match is None:
+        return None
+    return int(match.group(1))
+
+
 def reduce_run_events(events: list[RunEventDocument]) -> ControlWorkflowProjection:
     projection = ControlWorkflowProjection()
     seen_events_by_id: dict[str, RunEventDocument] = {}
@@ -208,6 +219,7 @@ def reduce_run_events(events: list[RunEventDocument]) -> ControlWorkflowProjecti
                     head_sha=event.head_sha,
                     accepted_criteria=task.accepted_criteria + event.accepted_criteria_delta,
                     expected_head_sha=event.head_sha,
+                    pull_request_number=_extract_pull_request_number(event.pull_request_url),
                 ),
             )
             continue

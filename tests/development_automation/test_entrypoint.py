@@ -12,9 +12,11 @@ from development_automation.live_adapters import (
     ProviderRateLimitError,
     PullRequestMetadata,
 )
+from development_automation.reducer import ControlWorkflowProjection, TaskProjection
 from development_automation.schemas.v1 import (
     STOP_REASON_SECOND_TASK_CREATED,
     DocumentType,
+    LifecycleState,
     RunEventDocument,
 )
 from development_automation.storage import load_documents
@@ -384,3 +386,45 @@ def test_review_rate_limit_is_retryable_without_persisting_review(tmp_path: Path
         getattr(document, "type", None) == DocumentType.REVIEW_DECISION
         for document in message_documents
     )
+
+
+def test_ci_task_resolution_uses_pr_binding_over_task_order(tmp_path: Path) -> None:
+    entrypoint, _, _ = _entrypoint(tmp_path)
+    projection = ControlWorkflowProjection(
+        tasks={
+            "task-0009": TaskProjection(
+                task_id="task-0009",
+                state=LifecycleState.WAITING_FOR_OPENAI_REVIEW,
+                branch="feat/task-one",
+                current_attempt=1,
+                head_sha="1111111111111111111111111111111111111111",
+                expected_head_sha="1111111111111111111111111111111111111111",
+                pull_request_number=10,
+            ),
+            "task-0010": TaskProjection(
+                task_id="task-0010",
+                state=LifecycleState.WAITING_FOR_CI,
+                branch="feat/task-two",
+                current_attempt=1,
+                head_sha="2222222222222222222222222222222222222222",
+                expected_head_sha="2222222222222222222222222222222222222222",
+                pull_request_number=11,
+            ),
+        },
+        task_order=("task-0009", "task-0010"),
+    )
+
+    resolved = entrypoint._resolve_ci_task(
+        projection,
+        {
+            "pull_request": {
+                "number": 11,
+                "head": {"ref": "feat/task-two"},
+            },
+            "workflow_run": {"head_sha": "2222222222222222222222222222222222222222"},
+        },
+        (),
+    )
+
+    assert resolved is not None
+    assert resolved.task_id == "task-0010"

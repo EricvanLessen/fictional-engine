@@ -416,15 +416,14 @@ class PortableDispatcherEntrypoint:
         actions_workflow_ref: str | None,
     ) -> DispatcherEvent | None:
         projection = self._projection()
-        if not projection.task_order:
+        checks = self._checks_from_payload(event_name, payload)
+        task = self._resolve_ci_task(projection, payload, checks)
+        if task is None:
             return None
-        task_id = projection.task_order[0]
-        task = projection.tasks[task_id]
         issue = payload.get("pull_request")
         pull_request_number = task.pull_request_number
         if isinstance(issue, dict) and "number" in issue:
             pull_request_number = int(issue["number"])
-        checks = self._checks_from_payload(event_name, payload)
         head_sha = None
         if checks:
             head_sha = checks[0].head_sha
@@ -440,7 +439,7 @@ class PortableDispatcherEntrypoint:
             repository=payload["repository"]["full_name"],
             actor=payload["sender"]["login"],
             event_action=payload.get("action"),
-            task_id=task_id,
+            task_id=task.task_id,
             attempt=task.current_attempt,
             branch=task.branch,
             pull_request_number=pull_request_number,
@@ -452,6 +451,62 @@ class PortableDispatcherEntrypoint:
             actions_workflow_ref=actions_workflow_ref,
             payload=payload,
         )
+
+    def _resolve_ci_task(
+        self,
+        projection: ControlWorkflowProjection,
+        payload: dict[str, Any],
+        checks: tuple[CheckRunEvidence, ...],
+    ) -> TaskProjection | None:
+        pull_request_number: int | None = None
+        branch: str | None = None
+        head_sha: str | None = checks[0].head_sha if checks else None
+
+        pull_request = payload.get("pull_request")
+        if isinstance(pull_request, dict):
+            number = pull_request.get("number")
+            head = pull_request.get("head")
+            if isinstance(number, int):
+                pull_request_number = number
+            if isinstance(head, dict) and isinstance(head.get("ref"), str):
+                branch = str(head["ref"])
+
+        workflow_run = payload.get("workflow_run")
+        if isinstance(workflow_run, dict):
+            number = workflow_run.get("pull_requests")
+            if isinstance(number, list) and number:
+                first_pr = number[0]
+                if isinstance(first_pr, dict) and isinstance(first_pr.get("number"), int):
+                    pull_request_number = int(first_pr["number"])
+            if isinstance(workflow_run.get("head_branch"), str):
+                branch = str(workflow_run["head_branch"])
+            if isinstance(workflow_run.get("head_sha"), str):
+                head_sha = str(workflow_run["head_sha"])
+
+        candidates = [
+            task
+            for task in projection.tasks.values()
+            if task.state
+            in {
+                LifecycleState.WAITING_FOR_CI,
+                LifecycleState.WAITING_FOR_OPENAI_REVIEW,
+            }
+        ]
+        if pull_request_number is not None:
+            candidates = [
+                task for task in candidates if task.pull_request_number == pull_request_number
+            ]
+        if branch is not None:
+            candidates = [task for task in candidates if task.branch == branch]
+        if head_sha is not None and len(candidates) > 1:
+            candidates = [
+                task
+                for task in candidates
+                if task.expected_head_sha == head_sha or task.head_sha == head_sha
+            ]
+        if len(candidates) == 1:
+            return candidates[0]
+        return None
 
     def _persist_ci_and_review(
         self,
@@ -634,6 +689,13 @@ class PortableDispatcherEntrypoint:
         next_task_number = max(int(task_id.split("-")[1]) for task_id in projection.tasks) + 1
         next_task_id = f"task-{next_task_number:04d}"
         next_branch = _slugify_branch(result.next_task_title or next_task_id, next_task_number)
+        next_intent, claimed = self._store.claim_intent(
+            dedupe_key=f"next-task:{repository}:{task.task_id}:{task.current_attempt}:{next_task_id}",
+            operation="create-next-task",
+            task_id=next_task_id,
+            head_sha=head_sha,
+            branch=next_branch,
+        )
         next_message = CorrespondenceDocument(
             message_id=_message_id("follow-up", task.task_id, next_task_id),
             task_id=next_task_id,
@@ -646,14 +708,6 @@ class PortableDispatcherEntrypoint:
             body=f"# {result.next_task_title}\n\n{result.next_task_body}\n",
         )
         persisted.append(self._append("messages", next_message))
-
-        next_intent, claimed = self._store.claim_intent(
-            dedupe_key=f"next-task:{repository}:{task.task_id}:{task.current_attempt}:{next_task_id}",
-            operation="create-next-task",
-            task_id=next_task_id,
-            head_sha=head_sha,
-            branch=next_branch,
-        )
         if claimed or next_intent.status == "claimed":
             running_next = self._store.transition_intent(
                 next_intent.intent_id,

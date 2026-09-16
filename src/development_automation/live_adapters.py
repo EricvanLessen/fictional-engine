@@ -272,6 +272,12 @@ class GitHubCopilotCodingAgent:
             raise ProviderError("GitHub provider request failed") from exc
         if response.status_code == 429:
             raise ProviderRateLimitError("GitHub provider request was rate limited")
+        if response.status_code == 403 and (
+            response.headers.get("x-ratelimit-remaining") == "0"
+            or response.headers.get("retry-after") is not None
+            or response.headers.get("x-ratelimit-reset") is not None
+        ):
+            raise ProviderRateLimitError("GitHub provider request was rate limited")
         if response.status_code >= 400:
             raise ProviderResponseError(f"GitHub returned HTTP {response.status_code} for {path}")
         return response

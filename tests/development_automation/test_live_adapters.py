@@ -248,3 +248,22 @@ def test_github_reconcile_finds_existing_issue_without_new_assignment() -> None:
     assert reconciled is not None
     assert reconciled.status == "running"
     assert reconciled.provider_run_id == "issue:42"
+
+
+def test_github_rate_limit_403_is_retryable() -> None:
+    agent = GitHubCopilotCodingAgent(
+        repository="EricvanLessen/fictional-engine",
+        token="github-token",
+        http_client=httpx.Client(
+            transport=httpx.MockTransport(
+                lambda _: httpx.Response(
+                    403,
+                    headers={"x-ratelimit-remaining": "0", "retry-after": "60"},
+                    json={"message": "secondary rate limit"},
+                )
+            )
+        ),
+    )
+
+    with pytest.raises(ProviderRateLimitError):
+        agent.reconcile("corr-3")

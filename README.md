@@ -101,9 +101,17 @@ The transactional outbox persists broker intents atomically with state mutations
 
 ## Development automation bootstrap
 
-Issue #6 Increment A adds an isolated `development_automation` package plus append-only `control/` documents for a GitHub-backed coordination protocol. This slice is offline-only: it validates versioned Markdown/YAML control envelopes, enforces deterministic workflow transitions, reconstructs projections from immutable run events, and stops after creating exactly one follow-up task.
+The `development_automation` package now includes:
 
-The authoritative control ref for both agents is `refs/heads/main`. Follow-up increments for the dispatcher, live providers, and proof cycle remain documented in [control/ARCHITECTURE.md](control/ARCHITECTURE.md) and are intentionally not implemented in this PR.
+- append-only control messages and run events under `control/`
+- deterministic workflow projection and dispatcher intent recovery
+- a live GitHub/Copilot task adapter
+- a live OpenAI Responses API review adapter
+- a portable dispatcher entrypoint for GitHub Actions or local replay
+
+The authoritative control ref for both agents remains `refs/heads/main`. Increment C still enforces a hard stop after `SECOND_TASK_CREATED`: the first follow-up task may be created as an auditable artifact, but it is never dispatched in this milestone.
+
+See [docs/DEVELOPMENT_AUTOMATION_OPERATIONS.md](docs/DEVELOPMENT_AUTOMATION_OPERATIONS.md) for required environment variables and the dispatcher entrypoint command.
 
 ## Container
 

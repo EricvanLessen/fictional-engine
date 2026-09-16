@@ -21,7 +21,7 @@ NON_TERMINAL_INTENT_STATES = {"claimed", "running"}
 
 ALLOWED_STATUS_TRANSITIONS: dict[str, set[str]] = {
     "claimed": {"running", "completed", "failed", "blocked", "unknown"},
-    "running": {"running", "completed", "failed", "blocked", "unknown"},
+    "running": {"claimed", "running", "completed", "failed", "blocked", "unknown"},
     "completed": set(),
     "failed": set(),
     "blocked": set(),
@@ -376,5 +376,13 @@ class FileDispatcherStore:
                 for intent in intents_by_id.values()
                 if intent.status in NON_TERMINAL_INTENT_STATES
             ]
+        finally:
+            self._unlock(lock_handle)
+
+    def get_intent(self, intent_id: str) -> DispatchIntent | None:
+        lock_handle = self._lock()
+        try:
+            _, intents_by_id = self._load_state_locked()
+            return intents_by_id.get(intent_id)
         finally:
             self._unlock(lock_handle)

@@ -45,6 +45,7 @@ class DispatcherOutcome:
     action: str
     reason: str
     intent_id: str | None = None
+    provider_run_id: str | None = None
 
 
 class GitHubEventDispatcher:
@@ -241,6 +242,7 @@ class GitHubEventDispatcher:
                 action=DispatcherAction.DISPATCHED,
                 reason="mock agent completed",
                 intent_id=intent.intent_id,
+                provider_run_id=result.provider_run_id,
             )
         if result.status == "failed":
             self._store.transition_intent(
@@ -253,6 +255,14 @@ class GitHubEventDispatcher:
                 action=DispatcherAction.BLOCKED,
                 reason="mock agent failed",
                 intent_id=intent.intent_id,
+                provider_run_id=result.provider_run_id,
+            )
+        if result.status in {"accepted", "queued", "running"}:
+            return DispatcherOutcome(
+                action=DispatcherAction.DISPATCHED,
+                reason="provider accepted dispatch",
+                intent_id=intent.intent_id,
+                provider_run_id=result.provider_run_id,
             )
         self._store.transition_intent(
             acknowledged_intent.intent_id,
@@ -264,6 +274,7 @@ class GitHubEventDispatcher:
             action=DispatcherAction.BLOCKED,
             reason=f"unknown mock agent status {result.status!r}",
             intent_id=intent.intent_id,
+            provider_run_id=result.provider_run_id,
         )
 
     def _handle_ci_intent(self, event: DispatcherEvent) -> DispatcherOutcome:
@@ -370,6 +381,25 @@ class GitHubEventDispatcher:
                         action=DispatcherAction.DISPATCHED,
                         reason=f"reconciled as {next_state}",
                         intent_id=intent.intent_id,
+                        provider_run_id=reconciled.provider_run_id,
+                    )
+                )
+                continue
+            if reconciled is not None and reconciled.status in {"accepted", "queued", "running"}:
+                if intent.provider_run_id != reconciled.provider_run_id:
+                    self._store.transition_intent(
+                        intent.intent_id,
+                        intent.status,
+                        expected_status=intent.status,
+                        expected_version=intent.version,
+                        provider_run_id=reconciled.provider_run_id,
+                    )
+                outcomes.append(
+                    DispatcherOutcome(
+                        action=DispatcherAction.NOOP,
+                        reason="reconciled and still running",
+                        intent_id=intent.intent_id,
+                        provider_run_id=reconciled.provider_run_id,
                     )
                 )
                 continue
@@ -424,6 +454,7 @@ class GitHubEventDispatcher:
                         action=DispatcherAction.DISPATCHED,
                         reason="resumed and completed",
                         intent_id=intent.intent_id,
+                        provider_run_id=result.provider_run_id,
                     )
                 )
             else:
@@ -438,6 +469,7 @@ class GitHubEventDispatcher:
                         action=DispatcherAction.BLOCKED,
                         reason="resumed and failed",
                         intent_id=intent.intent_id,
+                        provider_run_id=result.provider_run_id,
                     )
                 )
         return outcomes

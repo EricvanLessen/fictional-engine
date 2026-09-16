@@ -10,15 +10,14 @@ Both agents read and write the control-plane protocol against `refs/heads/main`.
 
 ## Increment boundary
 
-This repository change implements Increment A only:
+This repository change implements Increment C only:
 
-- control documents and append-only directories
-- versioned control schemas
-- Markdown plus YAML front-matter validator
-- pure reducer for deterministic workflow projection
-- fixtures and offline tests
+- live GitHub/Copilot task dispatch with append-only intent reconciliation
+- live OpenAI Responses API review with schema-validated bounded output
+- portable dispatcher entrypoint for GitHub Actions and local replay
+- one auditable proof cycle from task creation through CI review to one follow-up task
 
-This increment does not implement the dispatcher, live provider integrations, or autonomous proof execution.
+This increment must still stop after persisting creation of the second task. Task two may exist as an auditable follow-up artifact, but it must not be dispatched in this milestone.
 
 ## Stop rule
 

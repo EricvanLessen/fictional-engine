@@ -12,6 +12,20 @@ from development_automation.dispatcher_models import (
     EventSource,
 )
 from development_automation.dispatcher_store import DispatchIntent, FileDispatcherStore
+from development_automation.entrypoint import EntrypointResult, PortableDispatcherEntrypoint
+from development_automation.live_adapters import (
+    GitHubCopilotCodingAgent,
+    OpenAIReviewAdapter,
+    OpenAIReviewOutcome,
+    OpenAIReviewResult,
+    ProviderDispatchResult,
+    ProviderError,
+    ProviderRateLimitError,
+    ProviderResponseError,
+    ProviderTimeoutError,
+    PullRequestMetadata,
+    ReviewContext,
+)
 from development_automation.markdown import parse_control_document, render_control_document
 from development_automation.mock_agents import MockAgentResult, MockCodingAgent
 from development_automation.reducer import (
@@ -47,12 +61,25 @@ __all__ = [
     "DispatcherEvent",
     "DispatcherOutcome",
     "DispatcherPolicy",
+    "EntrypointResult",
     "EventSource",
     "FileDispatcherStore",
+    "GitHubCopilotCodingAgent",
     "GitHubEventDispatcher",
     "LifecycleState",
     "MockAgentResult",
     "MockCodingAgent",
+    "OpenAIReviewAdapter",
+    "OpenAIReviewOutcome",
+    "OpenAIReviewResult",
+    "PortableDispatcherEntrypoint",
+    "ProviderDispatchResult",
+    "ProviderError",
+    "ProviderRateLimitError",
+    "ProviderResponseError",
+    "ProviderTimeoutError",
+    "PullRequestMetadata",
+    "ReviewContext",
     "ReviewDecision",
     "RunEventDocument",
     "RunEventType",

@@ -30,13 +30,18 @@ def test_render_redacts_credentials_with_explicit_marker() -> None:
         status="PENDING",
         branch="feat/development-automation-protocol",
         created_at="2026-09-15T12:45:00Z",
-        body="OPENAI_API_KEY=sk-secretvalue123456\nKeep the rest of the note.\n",
+        body=(
+            "OPENAI_API_KEY=sk-secretvalue123456\n"
+            "COPILOT_AGENT_TOKEN=github_pat_secretvalue123456\n"
+            "Keep the rest of the note.\n"
+        ),
     )
 
     rendered_text = render_control_document(document)
 
     assert "[REDACTED_CREDENTIAL]" in rendered_text
     assert "sk-secretvalue123456" not in rendered_text
+    assert "github_pat_secretvalue123456" not in rendered_text
 
 
 def test_parse_rejects_malformed_yaml() -> None:

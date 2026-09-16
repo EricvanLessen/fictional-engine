@@ -15,3 +15,11 @@
 - Persist dispatcher deliveries and intents in append-only `control/runs/dispatcher-events.jsonl` with file locking for crash-safe CAS semantics.
 - Gate CI completion on exact implementation head SHA and configured required checks from trusted workflows only.
 - Keep `SECOND_TASK_CREATED` as a hard stop guard before any new dispatcher dispatch.
+
+## 2026-09-16 Increment C
+
+- Use the OpenAI Responses API directly through `httpx` with strict JSON-schema output validation and bounded control-plane review context.
+- Map GitHub issue numbers to protocol task IDs using the `task-0009` convention and preserve explicit branch instructions when present in the issue body.
+- Use hidden correlation markers in GitHub issue bodies so task creation, assignment, and restart reconciliation remain idempotent without persisting secrets.
+- Persist OpenAI review correspondence before creating any follow-up task and keep review retries exact-head bound when provider failures are retryable.
+- Treat the second task as record-only in this increment: create the follow-up GitHub task, persist `NEXT_TASK_CREATED`, and stop before any second dispatch.

@@ -417,6 +417,28 @@ def test_github_rate_limit_403_is_retryable() -> None:
         agent.reconcile("corr-3")
 
 
+def test_github_403_with_reset_header_and_remaining_quota_is_provider_error() -> None:
+    agent = GitHubCopilotCodingAgent(
+        repository="EricvanLessen/fictional-engine",
+        token="github-token",
+        http_client=httpx.Client(
+            transport=httpx.MockTransport(
+                lambda _: httpx.Response(
+                    403,
+                    headers={"x-ratelimit-remaining": "4999", "x-ratelimit-reset": "9999999999"},
+                    json={"message": "Resource not accessible by integration"},
+                )
+            )
+        ),
+    )
+
+    with pytest.raises(
+        ProviderResponseError,
+        match="/repos/EricvanLessen/fictional-engine/issues\\?state=all&per_page=100&page=1",
+    ):
+        agent.reconcile("corr-3")
+
+
 def test_github_issue_lookup_paginates_until_match() -> None:
     calls: list[str] = []
 

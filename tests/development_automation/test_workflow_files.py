@@ -19,3 +19,5 @@ def test_dispatcher_workflow_sets_event_path_after_runner_start() -> None:
         and 'EVENT_PATH=$RUNNER_TEMP/development-automation-event.json' in workflow_text
         and '$GITHUB_ENV' in workflow_text
     )
+    assert 'GITHUB_CONTROL_TOKEN: ${{ github.token }}' in workflow_text
+    assert 'COPILOT_AGENT_TOKEN: ${{ secrets.COPILOT_AGENT_TOKEN }}' in workflow_text

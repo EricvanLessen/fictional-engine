@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
+import development_automation.entrypoint as entrypoint_module
 from development_automation.dispatcher import DispatcherAction
 from development_automation.dispatcher_models import DispatcherPolicy
 from development_automation.dispatcher_store import FileDispatcherStore
@@ -158,12 +161,106 @@ def _entrypoint(
     )
 
 
+@pytest.fixture(autouse=True)
+def clear_entrypoint_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for key in (
+        "COPILOT_AGENT_TOKEN",
+        "GITHUB_CONTROL_TOKEN",
+        "OPENAI_API_KEY",
+        "DEVELOPMENT_AUTOMATION_ALLOWLISTED_ACTORS",
+        "DEVELOPMENT_AUTOMATION_REQUIRED_CHECKS",
+        "DEVELOPMENT_AUTOMATION_TRUSTED_WORKFLOW_REFS",
+        "DEVELOPMENT_AUTOMATION_CONTROL_BRANCH",
+        "DEVELOPMENT_AUTOMATION_CONTROL_BASE_REF",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+
 def _snapshot_control_tree(control_root: Path) -> dict[str, bytes]:
     return {
         str(path.relative_to(control_root)): path.read_bytes()
         for path in sorted(control_root.rglob("*"))
         if path.is_file()
     }
+
+
+def test_main_routes_control_persistence_token_separately(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps(
+            {
+                "action": "opened",
+                "repository": {"full_name": "EricvanLessen/fictional-engine"},
+                "sender": {"login": "EricvanLessen"},
+                "issue": {"number": 9, "title": "Increment C live adapters", "body": ""},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    captured: dict[str, str] = {}
+
+    class FakePersistence:
+        def __init__(self, **kwargs: object) -> None:
+            captured["persistence_token"] = str(kwargs["token"])
+
+        def hydrate(self) -> None:
+            return None
+
+    class FakeCodingAgentCtor:
+        def __init__(self, **kwargs: object) -> None:
+            captured["copilot_token"] = str(kwargs["token"])
+
+    class FakeReviewerCtor:
+        def __init__(self, **kwargs: object) -> None:
+            captured["openai_key"] = str(kwargs["api_key"])
+
+    class FakeEntrypointCtor:
+        def __init__(self, **kwargs: object) -> None:
+            return None
+
+        def handle_event(self, **kwargs: object) -> object:
+            return type(
+                "FakeResult",
+                (),
+                {"action": "NOOP", "reason": "ok", "task_id": None, "persisted_paths": ()},
+            )()
+
+    monkeypatch.setattr(entrypoint_module, "GitHubControlBranchPersistence", FakePersistence)
+    monkeypatch.setattr(entrypoint_module, "GitHubCopilotCodingAgent", FakeCodingAgentCtor)
+    monkeypatch.setattr(entrypoint_module, "OpenAIReviewAdapter", FakeReviewerCtor)
+    monkeypatch.setattr(entrypoint_module, "PortableDispatcherEntrypoint", FakeEntrypointCtor)
+    monkeypatch.setenv("COPILOT_AGENT_TOKEN", "copilot-token")
+    monkeypatch.setenv("GITHUB_CONTROL_TOKEN", "control-token")
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-token")
+    monkeypatch.setenv("DEVELOPMENT_AUTOMATION_ALLOWLISTED_ACTORS", "EricvanLessen")
+
+    exit_code = entrypoint_module.main(
+        [
+            "--event-name",
+            "issues",
+            "--event-path",
+            str(event_path),
+            "--control-root",
+            str(tmp_path / "control"),
+            "--repository",
+            "EricvanLessen/fictional-engine",
+            "--delivery-id",
+            "delivery-123",
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured["copilot_token"] == "copilot-token"
+    assert captured["persistence_token"] == "control-token"
+    assert captured["openai_key"] == "openai-token"
+    output = capsys.readouterr().out
+    assert "copilot-token" not in output
+    assert "control-token" not in output
 
 
 def _issue_payload(actor: str = "EricvanLessen") -> dict[str, object]:

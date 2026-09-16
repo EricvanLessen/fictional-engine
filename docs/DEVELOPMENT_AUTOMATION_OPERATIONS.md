@@ -3,11 +3,12 @@
 ## Required environment
 
 - `COPILOT_AGENT_TOKEN`
+- `GITHUB_CONTROL_TOKEN`
 - `OPENAI_API_KEY`
 - `DEVELOPMENT_AUTOMATION_ALLOWLISTED_ACTORS`
 - `DEVELOPMENT_AUTOMATION_CONTROL_BRANCH` (defaults to `copilot/development-automation-control`)
 
-Store both as GitHub Actions secrets or local environment variables. Never write them into `control/` documents, `.env`, logs, or committed fixtures.
+Store these as GitHub Actions secrets or local environment variables. `GITHUB_CONTROL_TOKEN` should be scoped only to control-state persistence, while `COPILOT_AGENT_TOKEN` remains scoped to Copilot assignment calls. Never write them into `control/` documents, `.env`, logs, or committed fixtures.
 
 ## Entrypoint
 
@@ -27,6 +28,7 @@ development-automation-dispatch \
 
 GitHub Actions should provide:
 
+- `GITHUB_CONTROL_TOKEN=${{ github.token }}`
 - `DEVELOPMENT_AUTOMATION_REQUIRED_CHECKS=checks,docker,gitleaks`
 - `DEVELOPMENT_AUTOMATION_TRUSTED_WORKFLOW_REFS=EricvanLessen/fictional-engine/.github/workflows/ci.yml@refs/heads/main,EricvanLessen/fictional-engine/.github/workflows/secret-scan.yml@refs/heads/main`
 

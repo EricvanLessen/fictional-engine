@@ -5,8 +5,10 @@ import json
 from pathlib import Path
 
 import httpx
+import pytest
 
 from development_automation.github_persistence import GitHubControlBranchPersistence
+from development_automation.live_adapters import ProviderRateLimitError, ProviderResponseError
 
 
 class FakeGitHubControlApi:
@@ -195,3 +197,59 @@ def test_control_branch_sync_retries_ref_conflicts_and_merges_jsonl(tmp_path: Pa
     assert api.files_for_ref("heads/copilot/development-automation-control")[
         "control/runs/dispatcher-events.jsonl"
     ] == '{"kind":"seed"}\n{"kind":"remote"}\n{"kind":"local"}\n'
+
+
+def test_control_branch_403_with_reset_header_is_not_treated_as_rate_limit(tmp_path: Path) -> None:
+    repository_root = tmp_path / "repo"
+    control_root = repository_root / "control"
+    control_root.mkdir(parents=True, exist_ok=True)
+
+    persistence = GitHubControlBranchPersistence(
+        repository="EricvanLessen/fictional-engine",
+        token="github-control-token",
+        repository_root=repository_root,
+        control_root=control_root,
+        http_client=httpx.Client(
+            transport=httpx.MockTransport(
+                lambda _: httpx.Response(
+                    403,
+                    headers={
+                        "x-ratelimit-remaining": "4999",
+                        "x-ratelimit-reset": "9999999999",
+                    },
+                    json={"message": "Resource not accessible by integration"},
+                )
+            )
+        ),
+    )
+
+    with pytest.raises(
+        ProviderResponseError,
+        match="/repos/EricvanLessen/fictional-engine/git/ref/heads/copilot/development-automation-control",
+    ):
+        persistence.hydrate()
+
+
+def test_control_branch_403_with_zero_remaining_is_retryable_rate_limit(tmp_path: Path) -> None:
+    repository_root = tmp_path / "repo"
+    control_root = repository_root / "control"
+    control_root.mkdir(parents=True, exist_ok=True)
+
+    persistence = GitHubControlBranchPersistence(
+        repository="EricvanLessen/fictional-engine",
+        token="github-control-token",
+        repository_root=repository_root,
+        control_root=control_root,
+        http_client=httpx.Client(
+            transport=httpx.MockTransport(
+                lambda _: httpx.Response(
+                    403,
+                    headers={"x-ratelimit-remaining": "0", "x-ratelimit-reset": "9999999999"},
+                    json={"message": "secondary rate limit"},
+                )
+            )
+        ),
+    )
+
+    with pytest.raises(ProviderRateLimitError):
+        persistence.hydrate()

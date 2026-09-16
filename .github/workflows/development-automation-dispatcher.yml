@@ -92,6 +92,7 @@ jobs:
 
       - name: Run dispatcher
         env:
+          GITHUB_CONTROL_TOKEN: ${{ github.token }}
           COPILOT_AGENT_TOKEN: ${{ secrets.COPILOT_AGENT_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |

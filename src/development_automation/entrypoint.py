@@ -713,8 +713,8 @@ class PortableDispatcherEntrypoint:
             created_at=created_at + timedelta(seconds=3),
             body=f"# {result.next_task_title}\n\n{result.next_task_body}\n",
         )
-        persisted.append(self._append("messages", next_message))
         if claimed or next_intent.status == "claimed":
+            persisted.append(self._append("messages", next_message))
             running_next = self._store.transition_intent(
                 next_intent.intent_id,
                 "running",
@@ -751,7 +751,7 @@ class PortableDispatcherEntrypoint:
             task_id=task.task_id,
             from_actor=Actor.GITHUB,
             to_actor=Actor.SYSTEM,
-            branch=next_branch,
+            branch=task.branch,
             created_at=created_at + timedelta(seconds=4),
             attempt=task.current_attempt,
             expected_head_sha=head_sha,

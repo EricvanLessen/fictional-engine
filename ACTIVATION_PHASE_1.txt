@@ -1,0 +1,10 @@
+# Increment C Real Cycle Activation
+# Phase 1: Bootstrap via pull_request event
+
+This file triggers the dispatcher workflow via pull_request event.
+PR target: copilot/increment-c-live-openai-coordinator (PR #10)
+Event: pull_request.opened
+Dispatcher will:
+1. Load task-0001 state from control branch
+2. Initialize bootstrap if not exists
+3. Record phase 1 completion

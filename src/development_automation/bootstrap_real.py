@@ -15,6 +15,7 @@ from typing import Any
 from development_automation.dispatcher_models import (
     DispatcherPolicy,
     DispatchEventType,
+    EventSource,
 )
 from development_automation.entrypoint import (
     EntrypointResult,
@@ -161,6 +162,7 @@ class RealBootstrap:
             },
             "repository": {
                 "name": self._config.repository.split("/")[-1],
+                "full_name": self._config.repository,
             },
             "sender": {
                 "login": "EricvanLessen",
@@ -172,7 +174,7 @@ class RealBootstrap:
             event_name=DispatchEventType.ISSUES,
             payload=event_payload,
             delivery_id=self._config.delivery_id,
-            source=self._config.repository,
+            source=EventSource.ACTIONS,
         )
 
         if isinstance(result, EntrypointResult):

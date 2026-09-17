@@ -15,10 +15,7 @@ from typing import Any
 from development_automation.dispatcher_models import (
     DispatcherPolicy,
     DispatchEventType,
-)
-from development_automation.entrypoint import (
-    EntrypointResult,
-    PortableDispatcherEntrypoint,
+    EventSource,
 )
 from development_automation.github_persistence import GitHubControlBranchPersistence
 from development_automation.live_adapters import (
@@ -119,6 +116,12 @@ class RealBootstrap:
 
     def bootstrap(self) -> BootstrapResult:
         """Create first task and record initial dispatcher action."""
+        # Late import to avoid circular dependency
+        from development_automation.entrypoint import (
+            EntrypointResult,
+            PortableDispatcherEntrypoint,
+        )
+
         coding_agent = self._build_coding_agent()
         reviewer = self._build_reviewer()
         github_persistence = self._build_github_persistence()
@@ -149,7 +152,7 @@ class RealBootstrap:
         task_issue_number = (
             int(task_id_parts[-1]) if is_numeric else len(task_id_parts)
         )
-        
+
         event_payload = {
             "action": "opened",
             "issue": {
@@ -161,6 +164,7 @@ class RealBootstrap:
             },
             "repository": {
                 "name": self._config.repository.split("/")[-1],
+                "full_name": self._config.repository,
             },
             "sender": {
                 "login": "EricvanLessen",
@@ -172,7 +176,7 @@ class RealBootstrap:
             event_name=DispatchEventType.ISSUES,
             payload=event_payload,
             delivery_id=self._config.delivery_id,
-            source=self._config.repository,
+            source=EventSource.ACTIONS,
         )
 
         if isinstance(result, EntrypointResult):

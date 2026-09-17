@@ -15,6 +15,11 @@ from development_automation.dispatcher import (
     DispatcherOutcome,
     GitHubEventDispatcher,
 )
+from development_automation.dispatcher_bootstrap import (
+    BootstrapTrigger,
+    apply_bootstrap,
+    should_bootstrap,
+)
 from development_automation.dispatcher_models import (
     CheckRunEvidence,
     DispatcherEvent,
@@ -1130,6 +1135,64 @@ def main(argv: list[str] | None = None) -> int:
         reviewer=reviewer,
         github_persistence=github_persistence,
     )
+
+    # Detect and apply first-run bootstrap if configured
+    bootstrap_trigger = BootstrapTrigger(
+        enabled=os.environ.get("DEVELOPMENT_AUTOMATION_FIRST_RUN_BOOTSTRAP") == "1",
+        target_pr_number=int(os.environ["DEVELOPMENT_AUTOMATION_FIRST_RUN_PR"])
+        if os.environ.get("DEVELOPMENT_AUTOMATION_FIRST_RUN_PR")
+        else None,
+        target_branch=os.environ.get("DEVELOPMENT_AUTOMATION_FIRST_RUN_BRANCH"),
+        target_head_sha=os.environ.get("DEVELOPMENT_AUTOMATION_FIRST_RUN_HEAD_SHA"),
+    )
+
+    # Only check bootstrap for first run if trigger is enabled
+    existing_tasks: dict[str, Any] = {}
+    if bootstrap_trigger.enabled:
+        try:
+            projection = entrypoint._projection()
+            existing_tasks = projection.tasks
+        except (AttributeError, Exception):
+            # If _projection() not available (e.g., in tests), skip bootstrap detection
+            pass
+
+    if bootstrap_trigger.enabled and should_bootstrap(
+        bootstrap_trigger, arguments.event_name, payload, existing_tasks
+    ):
+        success, reason = apply_bootstrap(
+            bootstrap_trigger,
+            arguments.event_name,
+            payload,
+            control_root,
+            arguments.repository,
+            coding_agent,
+            reviewer,
+            github_persistence,
+        )
+        if success:
+            # Reload state after bootstrap
+            entrypoint = PortableDispatcherEntrypoint(
+                control_root=control_root,
+                policy=policy,
+                webhook_secret=arguments.webhook_secret,
+                coding_agent=coding_agent,
+                reviewer=reviewer,
+                github_persistence=github_persistence,
+            )
+        else:
+            print(
+                json.dumps(
+                    {
+                        "action": DispatcherAction.NOOP,
+                        "reason": f"bootstrap failed: {reason}",
+                        "task_id": None,
+                        "persisted_paths": [],
+                    },
+                    sort_keys=True,
+                )
+            )
+            return 1
+
     outcome = entrypoint.handle_event(
         event_name=arguments.event_name,
         payload=payload,

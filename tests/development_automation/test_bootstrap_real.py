@@ -1,8 +1,6 @@
 """Tests for real bootstrap integration with Increment C components."""
 
-import json
 from pathlib import Path
-from datetime import UTC, datetime
 
 import pytest
 
@@ -12,7 +10,6 @@ from development_automation.bootstrap_real import (
     bootstrap_first_task,
 )
 from development_automation.schemas.v1 import LifecycleState
-from development_automation.storage import load_documents
 
 
 @pytest.fixture

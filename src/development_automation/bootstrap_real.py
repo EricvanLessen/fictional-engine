@@ -6,14 +6,16 @@ and Copilot/OpenAI adapters. Test-safe: uses in-memory or file-based stores.
 
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from development_automation.dispatcher_models import DispatcherPolicy, EventSource, DispatchEventType
+from development_automation.dispatcher_models import (
+    DispatcherPolicy,
+    DispatchEventType,
+)
 from development_automation.entrypoint import (
     EntrypointResult,
     PortableDispatcherEntrypoint,
@@ -24,7 +26,7 @@ from development_automation.live_adapters import (
     OpenAIReviewAdapter,
 )
 from development_automation.mock_agents import MockCodingAgent
-from development_automation.schemas.v1 import DocumentType, LifecycleState
+from development_automation.schemas.v1 import LifecycleState
 
 
 @dataclass(frozen=True)
@@ -71,9 +73,14 @@ class RealBootstrap:
         """Build real or mock Copilot coding agent."""
         if self._config.use_mock_agents:
             return MockCodingAgent()
+        # Real GitHubCopilotCodingAgent requires repository and token
+        token = self._config.github_token or os.getenv("GITHUB_TOKEN", "")
+        if not token:
+            raise ValueError("Real coding agent requires GITHUB_TOKEN or github_token config")
         return GitHubCopilotCodingAgent(
-            github_token=self._config.github_token or os.getenv("GITHUB_TOKEN", ""),
-            github_api_url=self._config.github_api_url,
+            repository=self._config.repository,
+            token=token,
+            base_url=self._config.github_api_url,
         )
 
     def _build_reviewer(self) -> Any:
@@ -85,8 +92,12 @@ class RealBootstrap:
                 async def review(self, context: Any) -> Any:
                     return None
             return _MockReviewer()
+        # Real OpenAIReviewAdapter requires api_key
+        api_key = self._config.openai_api_key or os.getenv("OPENAI_API_KEY", "")
+        if not api_key:
+            raise ValueError("Real reviewer requires OPENAI_API_KEY or openai_api_key config")
         return OpenAIReviewAdapter(
-            api_key=self._config.openai_api_key or os.getenv("OPENAI_API_KEY", ""),
+            api_key=api_key,
             model="gpt-4-mini",
         )
 
@@ -94,9 +105,13 @@ class RealBootstrap:
         """Build GitHub persistence if enabled."""
         if not self._config.use_github_persistence:
             return None
+        # Real GitHub persistence requires token
+        token = self._config.github_token or os.getenv("GITHUB_TOKEN", "")
+        if not token:
+            raise ValueError("GitHub persistence requires GITHUB_TOKEN or github_token config")
         return GitHubControlBranchPersistence(
             repository=self._config.repository,
-            token=self._config.github_token or os.getenv("GITHUB_TOKEN", ""),
+            token=token,
             repository_root=self._control_root.parent,
             control_root=self._control_root,
             base_url=self._config.github_api_url,
@@ -130,7 +145,10 @@ class RealBootstrap:
         # Simulate GitHub issues.opened event that creates the task
         # Extract issue number from task_id (format: task-NNNN or task-NAME)
         task_id_parts = self._config.task_id.split("-", 1)
-        task_issue_number = int(task_id_parts[-1]) if task_id_parts[-1].isdigit() else len(task_id_parts)
+        is_numeric = task_id_parts[-1].isdigit()
+        task_issue_number = (
+            int(task_id_parts[-1]) if is_numeric else len(task_id_parts)
+        )
         
         event_payload = {
             "action": "opened",

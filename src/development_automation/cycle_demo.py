@@ -18,13 +18,8 @@ Execution prerequisites:
 from __future__ import annotations
 
 from pathlib import Path
-from datetime import UTC, datetime
 
 from development_automation.bootstrap_real import BootstrapConfig, bootstrap_first_task
-from development_automation.dispatcher_models import DispatcherPolicy, EventSource
-from development_automation.entrypoint import PortableDispatcherEntrypoint
-from development_automation.mock_agents import MockCodingAgent
-from development_automation.schemas.v1 import LifecycleState
 
 
 def demonstrate_real_cycle() -> None:
@@ -153,8 +148,8 @@ def demonstrate_real_cycle() -> None:
     print()
     print(f"✓ Real bootstrap completed: Task {result.task_id}")
     print(f"✓ Task state: {result.task_lifecycle_state}")
-    print(f"✓ Integration: Real PortableDispatcherEntrypoint + Adapters")
-    print(f"✓ Tests: 101/101 pass (91 existing + 10 new bootstrap)")
+    print("✓ Integration: Real PortableDispatcherEntrypoint + Adapters")
+    print("✓ Tests: 101/101 pass (91 existing + 10 new bootstrap)")
     print()
     print("✗ Remaining to demonstrate:")
     print("  - Real GitHub webhook delivery for PUSH → Copilot dispatch")

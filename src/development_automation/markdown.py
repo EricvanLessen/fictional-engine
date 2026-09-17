@@ -19,7 +19,7 @@ def _redact_credentials(markdown: str) -> str:
         r"gh[pousr]_[A-Za-z0-9_]{12,}",
         r"github_pat_[A-Za-z0-9_]{12,}",
         r"sk-[A-Za-z0-9_-]{12,}",
-        r"(OPENAI_API_KEY|TELEGRAM_API_HASH|TELEGRAM_SESSION_STRING)=[^\s]+",
+        r"(OPENAI_API_KEY|COPILOT_AGENT_TOKEN|GITHUB_CONTROL_TOKEN|TELEGRAM_API_HASH|TELEGRAM_SESSION_STRING)=[^\s]+",
     )
     redacted = markdown
     for pattern in patterns:

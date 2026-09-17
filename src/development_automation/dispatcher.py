@@ -45,6 +45,7 @@ class DispatcherOutcome:
     action: str
     reason: str
     intent_id: str | None = None
+    provider_run_id: str | None = None
 
 
 class GitHubEventDispatcher:
@@ -131,6 +132,8 @@ class GitHubEventDispatcher:
             },
             DispatchEventType.ISSUES: {"opened", "edited", "reopened"},
             DispatchEventType.ISSUE_COMMENT: {"created", "edited"},
+            DispatchEventType.WORKFLOW_RUN: {"completed"},
+            DispatchEventType.CHECK_RUN: {"completed"},
         }
         allowed = eligible_actions.get(event.event_type)
         if allowed is None:
@@ -143,6 +146,28 @@ class GitHubEventDispatcher:
             comment_body = (event.comment_body or "").lower()
             if event.task_id is None or event.task_id.lower() not in comment_body:
                 raise DispatcherPolicyError("issue comment is not bound to the task ID")
+
+    def validate_incoming_event(
+        self,
+        event: DispatcherEvent,
+        *,
+        record_delivery: bool = True,
+    ) -> DispatcherOutcome | None:
+        if self._stop_boundary_reached():
+            return DispatcherOutcome(
+                action=DispatcherAction.NOOP,
+                reason="SECOND_TASK_CREATED stop boundary is active",
+            )
+        try:
+            self._validate_transport(event)
+            self._validate_policy(event)
+            if event.event_type != DispatchEventType.PUSH:
+                self._validate_dispatch_action(event)
+        except DispatcherPolicyError as exc:
+            return DispatcherOutcome(action=DispatcherAction.NOOP, reason=str(exc))
+        if record_delivery and not self._store.remember_delivery(event.delivery_id):
+            return DispatcherOutcome(action=DispatcherAction.NOOP, reason="duplicate delivery id")
+        return None
 
     def _validate_task_binding_for_dispatch(self, event: DispatcherEvent) -> None:
         projection = self._load_projection()
@@ -241,6 +266,7 @@ class GitHubEventDispatcher:
                 action=DispatcherAction.DISPATCHED,
                 reason="mock agent completed",
                 intent_id=intent.intent_id,
+                provider_run_id=result.provider_run_id,
             )
         if result.status == "failed":
             self._store.transition_intent(
@@ -253,6 +279,14 @@ class GitHubEventDispatcher:
                 action=DispatcherAction.BLOCKED,
                 reason="mock agent failed",
                 intent_id=intent.intent_id,
+                provider_run_id=result.provider_run_id,
+            )
+        if result.status in {"accepted", "queued", "running"}:
+            return DispatcherOutcome(
+                action=DispatcherAction.DISPATCHED,
+                reason="provider accepted dispatch",
+                intent_id=intent.intent_id,
+                provider_run_id=result.provider_run_id,
             )
         self._store.transition_intent(
             acknowledged_intent.intent_id,
@@ -264,6 +298,7 @@ class GitHubEventDispatcher:
             action=DispatcherAction.BLOCKED,
             reason=f"unknown mock agent status {result.status!r}",
             intent_id=intent.intent_id,
+            provider_run_id=result.provider_run_id,
         )
 
     def _handle_ci_intent(self, event: DispatcherEvent) -> DispatcherOutcome:
@@ -303,20 +338,9 @@ class GitHubEventDispatcher:
         )
 
     def process_event(self, event: DispatcherEvent) -> DispatcherOutcome:
-        if self._stop_boundary_reached():
-            return DispatcherOutcome(
-                action=DispatcherAction.NOOP,
-                reason="SECOND_TASK_CREATED stop boundary is active",
-            )
-
-        try:
-            self._validate_transport(event)
-            self._validate_policy(event)
-        except DispatcherPolicyError as exc:
-            return DispatcherOutcome(action=DispatcherAction.NOOP, reason=str(exc))
-
-        if not self._store.remember_delivery(event.delivery_id):
-            return DispatcherOutcome(action=DispatcherAction.NOOP, reason="duplicate delivery id")
+        ingress_outcome = self.validate_incoming_event(event)
+        if ingress_outcome is not None:
+            return ingress_outcome
 
         if event.event_type in {
             DispatchEventType.PUSH,
@@ -370,6 +394,25 @@ class GitHubEventDispatcher:
                         action=DispatcherAction.DISPATCHED,
                         reason=f"reconciled as {next_state}",
                         intent_id=intent.intent_id,
+                        provider_run_id=reconciled.provider_run_id,
+                    )
+                )
+                continue
+            if reconciled is not None and reconciled.status in {"accepted", "queued", "running"}:
+                if intent.provider_run_id != reconciled.provider_run_id:
+                    self._store.transition_intent(
+                        intent.intent_id,
+                        intent.status,
+                        expected_status=intent.status,
+                        expected_version=intent.version,
+                        provider_run_id=reconciled.provider_run_id,
+                    )
+                outcomes.append(
+                    DispatcherOutcome(
+                        action=DispatcherAction.NOOP,
+                        reason="reconciled and still running",
+                        intent_id=intent.intent_id,
+                        provider_run_id=reconciled.provider_run_id,
                     )
                 )
                 continue
@@ -424,6 +467,7 @@ class GitHubEventDispatcher:
                         action=DispatcherAction.DISPATCHED,
                         reason="resumed and completed",
                         intent_id=intent.intent_id,
+                        provider_run_id=result.provider_run_id,
                     )
                 )
             else:
@@ -438,6 +482,7 @@ class GitHubEventDispatcher:
                         action=DispatcherAction.BLOCKED,
                         reason="resumed and failed",
                         intent_id=intent.intent_id,
+                        provider_run_id=result.provider_run_id,
                     )
                 )
         return outcomes

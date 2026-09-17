@@ -21,6 +21,15 @@ from development_automation.mock_agents import MockAgentResult, MockCodingAgent
 from development_automation.schemas.v1 import RunEventDocument
 from development_automation.storage import append_document
 
+TRUSTED_WORKFLOW_REFS = (
+    "EricvanLessen/fictional-engine/.github/workflows/ci.yml@refs/heads/main",
+    "EricvanLessen/fictional-engine/.github/workflows/secret-scan.yml@refs/heads/main",
+)
+TRUSTED_DISPATCHER_REF = (
+    "EricvanLessen/fictional-engine/.github/workflows/development-automation-dispatcher.yml"
+    "@refs/heads/main"
+)
+
 
 def _signature(secret: str, body: bytes) -> str:
     return "sha256=" + hmac.new(secret.encode("utf-8"), body, sha256).hexdigest()
@@ -30,9 +39,9 @@ def _policy() -> DispatcherPolicy:
     return DispatcherPolicy(
         allowlisted_repositories=("EricvanLessen/fictional-engine",),
         allowlisted_actors=("EricvanLessen", "openai", "ci-bot"),
-        expected_check_names=("ruff", "mypy", "pytest"),
-        trusted_workflow_refs=("trusted/workflow.yml@refs/heads/main",),
-        trusted_actions_refs=("trusted/dispatcher.yml@refs/heads/main",),
+        expected_check_names=("checks", "docker", "gitleaks"),
+        trusted_workflow_refs=TRUSTED_WORKFLOW_REFS,
+        trusted_actions_refs=(TRUSTED_DISPATCHER_REF,),
     )
 
 
@@ -117,25 +126,25 @@ def _dispatch_event(
 def _ci_checks(head_sha: str) -> tuple[CheckRunEvidence, ...]:
     return (
         CheckRunEvidence(
-            name="ruff",
+            name="checks",
             status="completed",
             conclusion="success",
             head_sha=head_sha,
-            workflow_ref="trusted/workflow.yml@refs/heads/main",
+            workflow_ref="EricvanLessen/fictional-engine/.github/workflows/ci.yml@refs/heads/main",
         ),
         CheckRunEvidence(
-            name="mypy",
+            name="docker",
             status="completed",
             conclusion="success",
             head_sha=head_sha,
-            workflow_ref="trusted/workflow.yml@refs/heads/main",
+            workflow_ref="EricvanLessen/fictional-engine/.github/workflows/ci.yml@refs/heads/main",
         ),
         CheckRunEvidence(
-            name="pytest",
+            name="gitleaks",
             status="completed",
             conclusion="success",
             head_sha=head_sha,
-            workflow_ref="trusted/workflow.yml@refs/heads/main",
+            workflow_ref="EricvanLessen/fictional-engine/.github/workflows/secret-scan.yml@refs/heads/main",
         ),
     )
 
@@ -769,3 +778,59 @@ def test_recovery_reconciles_running_intent_without_redispatch(tmp_path: Path) -
     assert outcomes[0].reason == "reconciled as completed"
     assert len(agent.dispatch_calls) == 0
     assert running.intent_id == outcomes[0].intent_id
+
+
+def test_dispatch_accepts_running_provider_state(tmp_path: Path) -> None:
+    agent = MockCodingAgent()
+    agent.next_status = "running"
+    dispatcher = _dispatcher(tmp_path, agent)
+    _append_run_events_for_state(tmp_path / "control", "ready")
+
+    body = b'{"action":"opened"}'
+    event = _dispatch_event(
+        delivery_id="delivery-running",
+        event_type=DispatchEventType.PULL_REQUEST,
+        source=EventSource.WEBHOOK,
+        body=body,
+        signature=_signature("secret", body),
+        event_action="opened",
+    )
+
+    outcome = dispatcher.process_event(event)
+
+    assert outcome.action == DispatcherAction.DISPATCHED
+    assert outcome.provider_run_id == "mock-run-1"
+
+
+def test_recovery_leaves_running_intent_when_provider_reports_running(tmp_path: Path) -> None:
+    agent = MockCodingAgent()
+    agent.next_status = "running"
+    dispatcher = _dispatcher(tmp_path, agent)
+    _append_run_events_for_state(tmp_path / "control", "ready")
+
+    body = b'{"action":"opened"}'
+    event = _dispatch_event(
+        delivery_id="delivery-reconcile-running",
+        event_type=DispatchEventType.PULL_REQUEST,
+        source=EventSource.WEBHOOK,
+        body=body,
+        signature=_signature("secret", body),
+        event_action="opened",
+    )
+    outcome = dispatcher.process_event(event)
+    assert outcome.intent_id is not None
+
+    intent = dispatcher._store.get_intent(outcome.intent_id)
+    assert intent is not None
+    agent.reconcile_results[intent.correlation_id] = MockAgentResult(
+        correlation_id=intent.correlation_id,
+        status="running",
+        provider_run_id="mock-run-1",
+    )
+
+    resumed = dispatcher.resume_unfinished_intents()
+
+    assert resumed
+    assert resumed[0].action == DispatcherAction.NOOP
+    assert resumed[0].reason == "reconciled and still running"
+    assert len(agent.dispatch_calls) == 1

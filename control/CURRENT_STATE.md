@@ -8,7 +8,7 @@
 
 - Increment A: implemented on feature branch for review in this pull request; not authoritative until merged to `refs/heads/main`.
 - Increment B: implemented on `feat/development-automation-dispatcher` for review in this pull request; not authoritative until merged to `refs/heads/main`.
-- Increment C: not started.
+- Increment C: implemented on `feat/development-automation-live-adapters` for review; proof stops at `SECOND_TASK_CREATED`.
 - Increment D: not started.
 
 ## Available guarantees after Increment A
@@ -18,11 +18,19 @@
 - Run events can rebuild task projections after restart.
 - The reducer enforces attempt limits, stale-head checks, explicit pause or complete states, and the `SECOND_TASK_CREATED` stop boundary.
 
+## Available guarantees after Increment C
+
+- A portable dispatcher entrypoint can normalize trusted GitHub issue, comment, pull request, workflow-run, check, and push event families.
+- GitHub task dispatch persists append-only task, run, and dispatcher-intent evidence before and after live provider calls, and mirrors that state to `refs/heads/copilot/development-automation-control`.
+- Copilot task creation or assignment uses stable correlation markers so restart reconciliation does not create duplicate GitHub issues or duplicate assignments.
+- OpenAI review requests use bounded repository/task/PR/CI/control-doc context and require schema-validated structured output with one decision.
+- Retryable OpenAI provider failures do not persist review decisions, and the existing review intent is reset for a later exact-head retry.
+- The live-capable proof path stops after persisting the second task and never dispatches task two.
+
 ## Not yet implemented
 
-- Real GitHub provider calls for Copilot dispatch or review remain deferred to Increment C.
-- OpenAI API reviewer integration remains deferred to Increment C.
 - Notification delivery remains deferred to Increment D.
+- Continued autonomous execution past `SECOND_TASK_CREATED` remains forbidden.
 
 ## Available guarantees after Increment B
 

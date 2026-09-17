@@ -8,7 +8,11 @@
 
 - Increment A: implemented on feature branch for review in this pull request; not authoritative until merged to `refs/heads/main`.
 - Increment B: implemented on `feat/development-automation-dispatcher` for review in this pull request; not authoritative until merged to `refs/heads/main`.
-- Increment C: not started.
+- Increment C: **in progress** on `feat/development-automation-dispatcher` for review in this pull request.
+  - Bootstrap system for task creation implemented
+  - Full event-driven workflow documented
+  - Cycle tests written (simulated, not running yet due to Python 3.12+ requirement)
+  - Workflow dependency on `refs/heads/main` documented as blocker
 - Increment D: not started.
 
 ## Available guarantees after Increment A
@@ -20,9 +24,10 @@
 
 ## Not yet implemented
 
-- Real GitHub provider calls for Copilot dispatch or review remain deferred to Increment C.
-- OpenAI API reviewer integration remains deferred to Increment C.
+- Real Copilot API calls remain mocked; integration deferred to Increment D.
+- Real OpenAI reviewer API calls remain mocked; integration deferred to Increment D.
 - Notification delivery remains deferred to Increment D.
+- Production workflow deployment: dispatcher workflow must be on `refs/heads/main` to receive GitHub webhooks (blocker for real integration).
 
 ## Available guarantees after Increment B
 
@@ -33,3 +38,12 @@
 - Duplicate concurrent deliveries converge to one logical dispatch intent.
 - CI gate approval requires configured check names, trusted workflow identities, completed status, success conclusion, and exact head SHA match.
 - `SECOND_TASK_CREATED` stop boundary remains active and blocks new dispatch attempts.
+
+## Available guarantees after Increment C (in progress)
+
+- Bootstrap system creates initial task with explicit PR and commit binding.
+- Full event-driven workflow from PR event → dispatch → CI → review → next task creation.
+- Duplicate dispatch prevention on same attempt (semantic deduplication).
+- Duplicate webhook delivery deduplication (delivery_id).
+- Stop boundary (SECOND_TASK_CREATED) prevents further dispatch after first cycle completes.
+- Simulated tests demonstrate full cycle in-process; awaiting Python 3.12+ environment for real execution.

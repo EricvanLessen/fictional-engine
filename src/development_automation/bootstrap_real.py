@@ -17,10 +17,6 @@ from development_automation.dispatcher_models import (
     DispatchEventType,
     EventSource,
 )
-from development_automation.entrypoint import (
-    EntrypointResult,
-    PortableDispatcherEntrypoint,
-)
 from development_automation.github_persistence import GitHubControlBranchPersistence
 from development_automation.live_adapters import (
     GitHubCopilotCodingAgent,
@@ -120,6 +116,12 @@ class RealBootstrap:
 
     def bootstrap(self) -> BootstrapResult:
         """Create first task and record initial dispatcher action."""
+        # Late import to avoid circular dependency
+        from development_automation.entrypoint import (
+            EntrypointResult,
+            PortableDispatcherEntrypoint,
+        )
+
         coding_agent = self._build_coding_agent()
         reviewer = self._build_reviewer()
         github_persistence = self._build_github_persistence()

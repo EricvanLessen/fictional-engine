@@ -35,7 +35,7 @@ def demonstrate_real_cycle() -> None:
     ✗ Requires activated GitHub integration for follow-up tasks
     """
     
-    control_root = Path("demo_control")
+    control_root = Path("demo_control").resolve()
     control_root.mkdir(exist_ok=True)
     
     print("\n" + "="*70)

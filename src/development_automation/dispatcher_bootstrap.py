@@ -118,8 +118,8 @@ def apply_bootstrap(
         payload: Event payload
         control_root: Path to control directory
         repository: Repository identifier (owner/repo)
-        coding_agent: Copilot coding agent
-        reviewer: OpenAI review adapter
+        coding_agent: Selected coding provider
+        reviewer: Selected review provider
         github_persistence: GitHub control state persistence
 
     Returns:
@@ -153,7 +153,12 @@ def apply_bootstrap(
             openai_api_key=None,  # Will use env var
         )
 
-        bootstrap = RealBootstrap(config)
+        bootstrap = RealBootstrap(
+            config,
+            coding_agent=coding_agent,
+            reviewer=reviewer,
+            github_persistence=github_persistence,
+        )
         result = bootstrap.bootstrap()
 
         if result.task_lifecycle_state != LifecycleState.READY_FOR_COPILOT:

@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from development_automation.dispatcher_bootstrap import (
     BootstrapTrigger,
@@ -188,7 +186,7 @@ class TestApplyBootstrap:
     def test_apply_bootstrap_requires_metadata(self) -> None:
         """Bootstrap fails gracefully without sufficient metadata."""
         trigger = BootstrapTrigger(enabled=True)
-        payload: dict = {"pull_request": {}}  # Missing head info
+        payload: dict[str, Any] = {"pull_request": {}}  # Missing head info
         control_root = Path("/tmp/test-control")
         coding_agent = MagicMock()
         reviewer = MagicMock()

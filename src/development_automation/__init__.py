@@ -1,4 +1,5 @@
 from development_automation.ci_gate import CIGateError, validate_ci_for_exact_head
+from development_automation.cline_adapter import ClineOpenRouterCodingAgent
 from development_automation.dispatcher import (
     DispatcherAction,
     DispatcherOutcome,
@@ -29,6 +30,7 @@ from development_automation.live_adapters import (
 )
 from development_automation.markdown import parse_control_document, render_control_document
 from development_automation.mock_agents import MockAgentResult, MockCodingAgent
+from development_automation.openrouter_adapter import OpenRouterReviewAdapter
 from development_automation.reducer import (
     ControlWorkflowProjection,
     TaskProjection,
@@ -54,6 +56,7 @@ __all__ = [
     "STOP_REASON_SECOND_TASK_CREATED",
     "CIGateError",
     "CheckRunEvidence",
+    "ClineOpenRouterCodingAgent",
     "ControlWorkflowProjection",
     "CorrespondenceDocument",
     "DispatchEventType",
@@ -74,6 +77,7 @@ __all__ = [
     "OpenAIReviewAdapter",
     "OpenAIReviewOutcome",
     "OpenAIReviewResult",
+    "OpenRouterReviewAdapter",
     "PortableDispatcherEntrypoint",
     "ProviderDispatchResult",
     "ProviderError",

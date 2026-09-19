@@ -10,6 +10,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
+from development_automation.cline_adapter import ClineOpenRouterCodingAgent
 from development_automation.dispatcher import (
     DispatcherAction,
     DispatcherOutcome,
@@ -36,6 +37,7 @@ from development_automation.live_adapters import (
     ProviderError,
     ReviewContext,
 )
+from development_automation.openrouter_adapter import OpenRouterReviewAdapter
 from development_automation.reducer import (
     ControlWorkflowProjection,
     TaskProjection,
@@ -127,6 +129,7 @@ class PortableDispatcherEntrypoint:
         webhook_secret: str,
         coding_agent: Any,
         reviewer: Any,
+        coding_result_actors: tuple[str, ...] = ("Copilot", "copilot-swe-agent"),
         github_persistence: GitHubControlBranchPersistence | None = None,
         store: FileDispatcherStore | None = None,
     ) -> None:
@@ -145,6 +148,7 @@ class PortableDispatcherEntrypoint:
         )
         self._coding_agent = coding_agent
         self._reviewer = reviewer
+        self._coding_result_actors = frozenset(coding_result_actors)
         self._dispatcher = GitHubEventDispatcher(
             control_root=control_root,
             policy=policy,
@@ -380,10 +384,7 @@ class PortableDispatcherEntrypoint:
         if not isinstance(pull_request, dict):
             return ()
         sender = payload.get("sender")
-        if not isinstance(sender, dict) or sender.get("login") not in {
-            "Copilot",
-            "copilot-swe-agent",
-        }:
+        if not isinstance(sender, dict) or sender.get("login") not in self._coding_result_actors:
             return ()
         head = pull_request.get("head")
         if not isinstance(head, dict):
@@ -1064,7 +1065,26 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--delivery-id", required=True)
     parser.add_argument("--webhook-secret", default="")
     parser.add_argument("--actions-workflow-ref", default=None)
-    parser.add_argument("--openai-model", default="gpt-5-mini")
+    parser.add_argument(
+        "--coding-provider",
+        choices=("copilot", "cline"),
+        default=os.environ.get("DEVELOPMENT_AUTOMATION_CODING_PROVIDER", "copilot"),
+    )
+    parser.add_argument(
+        "--review-provider",
+        choices=("openai", "openrouter"),
+        default=os.environ.get("DEVELOPMENT_AUTOMATION_REVIEW_PROVIDER", "openai"),
+    )
+    parser.add_argument(
+        "--coding-model",
+        default=os.environ.get("DEVELOPMENT_AUTOMATION_CODING_MODEL", "openrouter/auto"),
+    )
+    parser.add_argument(
+        "--review-model",
+        "--openai-model",
+        dest="review_model",
+        default=os.environ.get("DEVELOPMENT_AUTOMATION_REVIEW_MODEL", "gpt-5-mini"),
+    )
     parser.add_argument(
         "--allowlisted-actors",
         nargs="+",
@@ -1106,16 +1126,51 @@ def main(argv: list[str] | None = None) -> int:
             else (DEFAULT_DISPATCHER_WORKFLOW_REF,)
         ),
     )
-    coding_agent = GitHubCopilotCodingAgent(
-        repository=arguments.repository,
-        token=os.environ["COPILOT_AGENT_TOKEN"],
-    )
-    reviewer = OpenAIReviewAdapter(
-        api_key=os.environ["OPENAI_API_KEY"],
-        model=arguments.openai_model,
-    )
     control_root = Path(arguments.control_root).resolve()
     repository_root = Path.cwd().resolve()
+    if arguments.coding_provider == "cline":
+        cline_github_token = os.environ.get("CLINE_GITHUB_TOKEN") or os.environ.get(
+            "COPILOT_AGENT_TOKEN"
+        )
+        if not cline_github_token:
+            parser.error("Cline coding requires CLINE_GITHUB_TOKEN")
+        openrouter_api_key = os.environ.get("OPENROUTER_API_KEY")
+        if not openrouter_api_key:
+            parser.error("Cline coding requires OPENROUTER_API_KEY")
+        coding_agent: Any = ClineOpenRouterCodingAgent(
+            repository=arguments.repository,
+            github_token=cline_github_token,
+            openrouter_api_key=openrouter_api_key,
+            repository_root=repository_root,
+            model=arguments.coding_model,
+            timeout_seconds=int(
+                os.environ.get("DEVELOPMENT_AUTOMATION_CLINE_TIMEOUT_SECONDS", "1800")
+            ),
+            retries=int(os.environ.get("DEVELOPMENT_AUTOMATION_CLINE_RETRIES", "3")),
+            thinking=os.environ.get("DEVELOPMENT_AUTOMATION_CLINE_THINKING", "medium"),
+        )
+    else:
+        coding_agent = GitHubCopilotCodingAgent(
+            repository=arguments.repository,
+            token=os.environ["COPILOT_AGENT_TOKEN"],
+        )
+
+    if arguments.review_provider == "openrouter":
+        openrouter_api_key = os.environ.get("OPENROUTER_API_KEY")
+        if not openrouter_api_key:
+            parser.error("OpenRouter review requires OPENROUTER_API_KEY")
+        reviewer: Any = OpenRouterReviewAdapter(
+            api_key=openrouter_api_key,
+            model=arguments.review_model,
+            cost_quality_tradeoff=int(
+                os.environ.get("DEVELOPMENT_AUTOMATION_OPENROUTER_COST_QUALITY", "7")
+            ),
+        )
+    else:
+        reviewer = OpenAIReviewAdapter(
+            api_key=os.environ["OPENAI_API_KEY"],
+            model=arguments.review_model,
+        )
     github_persistence = GitHubControlBranchPersistence(
         repository=arguments.repository,
         token=os.environ["GITHUB_CONTROL_TOKEN"],
@@ -1133,6 +1188,11 @@ def main(argv: list[str] | None = None) -> int:
         webhook_secret=arguments.webhook_secret,
         coding_agent=coding_agent,
         reviewer=reviewer,
+        coding_result_actors=(
+            _split_csv(os.environ["DEVELOPMENT_AUTOMATION_CODING_RESULT_ACTORS"])
+            if os.environ.get("DEVELOPMENT_AUTOMATION_CODING_RESULT_ACTORS")
+            else ("Copilot", "copilot-swe-agent")
+        ),
         github_persistence=github_persistence,
     )
 
@@ -1177,6 +1237,11 @@ def main(argv: list[str] | None = None) -> int:
                 webhook_secret=arguments.webhook_secret,
                 coding_agent=coding_agent,
                 reviewer=reviewer,
+                coding_result_actors=(
+                    _split_csv(os.environ["DEVELOPMENT_AUTOMATION_CODING_RESULT_ACTORS"])
+                    if os.environ.get("DEVELOPMENT_AUTOMATION_CODING_RESULT_ACTORS")
+                    else ("Copilot", "copilot-swe-agent")
+                ),
                 github_persistence=github_persistence,
             )
         else:

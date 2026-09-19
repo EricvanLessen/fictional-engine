@@ -20,4 +20,12 @@ def test_dispatcher_workflow_sets_event_path_after_runner_start() -> None:
         and '$GITHUB_ENV' in workflow_text
     )
     assert 'GITHUB_CONTROL_TOKEN: ${{ github.token }}' in workflow_text
-    assert 'COPILOT_AGENT_TOKEN: ${{ secrets.COPILOT_AGENT_TOKEN }}' in workflow_text
+    assert "DEVELOPMENT_AUTOMATION_CODING_PROVIDER: cline" in workflow_text
+    assert "DEVELOPMENT_AUTOMATION_REVIEW_PROVIDER: openrouter" in workflow_text
+    assert "npm install --global cline@3.0.62" in workflow_text
+    assert (
+        "CLINE_GITHUB_TOKEN: "
+        "${{ secrets.CLINE_GITHUB_TOKEN || secrets.COPILOT_AGENT_TOKEN }}"
+    ) in workflow_text
+    assert "OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}" in workflow_text
+    assert "OPENAI_API_KEY" not in workflow_text

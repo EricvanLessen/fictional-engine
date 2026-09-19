@@ -58,6 +58,28 @@ class TestRealBootstrap:
         assert temp_control_root.exists()
         assert result.task_id is not None
 
+    def test_bootstrap_resolves_relative_control_root(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        config = BootstrapConfig(
+            control_root=Path("control"),
+            task_id="task-0004",
+            pr_number=4,
+            branch="feat/relative-control-root",
+            initial_head_sha="a" * 40,
+            task_title="Relative root",
+            task_body="Verify relative control root handling.",
+            use_github_persistence=False,
+        )
+
+        result = RealBootstrap(config).bootstrap()
+
+        assert result.control_root == (tmp_path / "control").resolve()
+        assert result.task_id == "task-0004"
+
     def test_bootstrap_returns_task_id(
         self, temp_control_root: Path, bootstrap_config: BootstrapConfig
     ) -> None:
@@ -180,7 +202,7 @@ class TestBootstrapPersistence:
         """Bootstrap works with local file storage (no GitHub)."""
         config = BootstrapConfig(
             control_root=temp_control_root,
-            task_id="task-local",
+            task_id="task-0010",
             pr_number=10,
             branch="feat/local",
             initial_head_sha="0aafd25951067ac67fbd0e8bd8de212e927e2edf",
@@ -192,6 +214,6 @@ class TestBootstrapPersistence:
         bootstrap = RealBootstrap(config)
         result = bootstrap.bootstrap()
         
-        assert result.task_id == "task-local"
+        assert result.task_id == "task-0010"
         # Control root should have local files
         assert temp_control_root.exists()

@@ -1,7 +1,7 @@
 """Real bootstrap integration for Increment C.
 
-Creates first task with real PortableDispatcherEntrypoint, GitHub persistence,
-and Copilot/OpenAI adapters. Test-safe: uses in-memory or file-based stores.
+Creates the first task with the portable entrypoint, GitHub persistence, and
+exchangeable coding/review providers. Test-safe: supports injected mock providers.
 """
 
 from __future__ import annotations
@@ -61,13 +61,25 @@ class BootstrapResult:
 class RealBootstrap:
     """Bootstrap first task using real Increment C components."""
 
-    def __init__(self, config: BootstrapConfig) -> None:
+    def __init__(
+        self,
+        config: BootstrapConfig,
+        *,
+        coding_agent: Any | None = None,
+        reviewer: Any | None = None,
+        github_persistence: GitHubControlBranchPersistence | None = None,
+    ) -> None:
         self._config = config
-        self._control_root = config.control_root
+        self._control_root = config.control_root.resolve()
+        self._coding_agent_override = coding_agent
+        self._reviewer_override = reviewer
+        self._github_persistence_override = github_persistence
         self._control_root.mkdir(parents=True, exist_ok=True)
 
     def _build_coding_agent(self) -> Any:
-        """Build real or mock Copilot coding agent."""
+        """Build the configured real, injected, or mock coding agent."""
+        if self._coding_agent_override is not None:
+            return self._coding_agent_override
         if self._config.use_mock_agents:
             return MockCodingAgent()
         # Real GitHubCopilotCodingAgent requires repository and token
@@ -81,7 +93,9 @@ class RealBootstrap:
         )
 
     def _build_reviewer(self) -> Any:
-        """Build real or mock OpenAI reviewer."""
+        """Build the configured real, injected, or mock reviewer."""
+        if self._reviewer_override is not None:
+            return self._reviewer_override
         if self._config.use_mock_agents:
             # For bootstrap, use a simple mock; MockReviewer might not exist
             # Return a callable object that implements reviewer interface
@@ -100,6 +114,8 @@ class RealBootstrap:
 
     def _build_github_persistence(self) -> GitHubControlBranchPersistence | None:
         """Build GitHub persistence if enabled."""
+        if self._github_persistence_override is not None:
+            return self._github_persistence_override
         if not self._config.use_github_persistence:
             return None
         # Real GitHub persistence requires token

@@ -140,6 +140,7 @@ def _seed_control_documents(control_root: Path) -> None:
 def _entrypoint(
     tmp_path: Path,
     reviewer: FakeReviewer | None = None,
+    coding_result_actors: tuple[str, ...] = ("Copilot", "copilot-swe-agent"),
 ) -> tuple[PortableDispatcherEntrypoint, FakeCodingAgent, FakeReviewer]:
     control_root = tmp_path / "control"
     (control_root / "messages").mkdir(parents=True, exist_ok=True)
@@ -154,6 +155,7 @@ def _entrypoint(
             webhook_secret="secret",
             coding_agent=agent,
             reviewer=fake_reviewer,
+            coding_result_actors=coding_result_actors,
             store=FileDispatcherStore(control_root),
         ),
         agent,
@@ -165,8 +167,15 @@ def _entrypoint(
 def clear_entrypoint_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for key in (
         "COPILOT_AGENT_TOKEN",
+        "CLINE_GITHUB_TOKEN",
         "GITHUB_CONTROL_TOKEN",
         "OPENAI_API_KEY",
+        "OPENROUTER_API_KEY",
+        "DEVELOPMENT_AUTOMATION_CODING_PROVIDER",
+        "DEVELOPMENT_AUTOMATION_REVIEW_PROVIDER",
+        "DEVELOPMENT_AUTOMATION_CODING_MODEL",
+        "DEVELOPMENT_AUTOMATION_REVIEW_MODEL",
+        "DEVELOPMENT_AUTOMATION_CODING_RESULT_ACTORS",
         "DEVELOPMENT_AUTOMATION_ALLOWLISTED_ACTORS",
         "DEVELOPMENT_AUTOMATION_REQUIRED_CHECKS",
         "DEVELOPMENT_AUTOMATION_TRUSTED_WORKFLOW_REFS",
@@ -263,6 +272,95 @@ def test_main_routes_control_persistence_token_separately(
     assert "control-token" not in output
 
 
+def test_main_builds_cline_and_openrouter_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps(
+            {
+                "action": "opened",
+                "repository": {"full_name": "EricvanLessen/fictional-engine"},
+                "sender": {"login": "EricvanLessen"},
+                "issue": {"number": 9, "title": "Cline task", "body": ""},
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured: dict[str, object] = {}
+
+    class FakePersistence:
+        def __init__(self, **kwargs: object) -> None:
+            return None
+
+        def hydrate(self) -> None:
+            return None
+
+    class FakeClineCtor:
+        def __init__(self, **kwargs: object) -> None:
+            captured["cline"] = kwargs
+
+    class FakeOpenRouterCtor:
+        def __init__(self, **kwargs: object) -> None:
+            captured["openrouter"] = kwargs
+
+    class FakeEntrypointCtor:
+        def __init__(self, **kwargs: object) -> None:
+            captured["coding_result_actors"] = kwargs["coding_result_actors"]
+
+        def handle_event(self, **kwargs: object) -> object:
+            return type(
+                "FakeResult",
+                (),
+                {"action": "NOOP", "reason": "ok", "task_id": None, "persisted_paths": ()},
+            )()
+
+    monkeypatch.setattr(entrypoint_module, "GitHubControlBranchPersistence", FakePersistence)
+    monkeypatch.setattr(entrypoint_module, "ClineOpenRouterCodingAgent", FakeClineCtor)
+    monkeypatch.setattr(entrypoint_module, "OpenRouterReviewAdapter", FakeOpenRouterCtor)
+    monkeypatch.setattr(entrypoint_module, "PortableDispatcherEntrypoint", FakeEntrypointCtor)
+    monkeypatch.setenv("CLINE_GITHUB_TOKEN", "cline-github-token")
+    monkeypatch.setenv("GITHUB_CONTROL_TOKEN", "control-token")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "openrouter-token")
+    monkeypatch.setenv("DEVELOPMENT_AUTOMATION_CODING_PROVIDER", "cline")
+    monkeypatch.setenv("DEVELOPMENT_AUTOMATION_REVIEW_PROVIDER", "openrouter")
+    monkeypatch.setenv("DEVELOPMENT_AUTOMATION_CODING_MODEL", "openrouter/auto")
+    monkeypatch.setenv("DEVELOPMENT_AUTOMATION_REVIEW_MODEL", "openrouter/auto")
+    monkeypatch.setenv("DEVELOPMENT_AUTOMATION_ALLOWLISTED_ACTORS", "EricvanLessen")
+    monkeypatch.setenv(
+        "DEVELOPMENT_AUTOMATION_CODING_RESULT_ACTORS",
+        "EricvanLessen,Copilot",
+    )
+
+    exit_code = entrypoint_module.main(
+        [
+            "--event-name",
+            "issues",
+            "--event-path",
+            str(event_path),
+            "--control-root",
+            str(tmp_path / "control"),
+            "--repository",
+            "EricvanLessen/fictional-engine",
+            "--delivery-id",
+            "delivery-cline",
+        ]
+    )
+
+    assert exit_code == 0
+    cline_kwargs = captured["cline"]
+    assert isinstance(cline_kwargs, dict)
+    assert cline_kwargs["github_token"] == "cline-github-token"
+    assert cline_kwargs["openrouter_api_key"] == "openrouter-token"
+    assert cline_kwargs["model"] == "openrouter/auto"
+    reviewer_kwargs = captured["openrouter"]
+    assert isinstance(reviewer_kwargs, dict)
+    assert reviewer_kwargs["api_key"] == "openrouter-token"
+    assert reviewer_kwargs["model"] == "openrouter/auto"
+    assert captured["coding_result_actors"] == ("EricvanLessen", "Copilot")
+
+
 def _issue_payload(actor: str = "EricvanLessen") -> dict[str, object]:
     return {
         "action": "opened",
@@ -279,11 +377,12 @@ def _issue_payload(actor: str = "EricvanLessen") -> dict[str, object]:
 
 def _pull_request_payload(
     head_sha: str = "0123456789abcdef0123456789abcdef01234567",
+    actor: str = "Copilot",
 ) -> dict[str, object]:
     return {
         "action": "opened",
         "repository": {"full_name": "EricvanLessen/fictional-engine"},
-        "sender": {"login": "Copilot"},
+        "sender": {"login": actor},
         "pull_request": {
             "number": 10,
             "title": "Implement Increment C",
@@ -496,6 +595,30 @@ def test_untrusted_dispatcher_workflow_leaves_pull_request_state_unchanged(tmp_p
     assert result.action == DispatcherAction.NOOP
     assert "not trusted" in result.reason
     assert _snapshot_control_tree(tmp_path / "control") == baseline
+
+
+def test_configured_cline_actor_can_record_pull_request_result(tmp_path: Path) -> None:
+    entrypoint, _, _ = _entrypoint(
+        tmp_path,
+        coding_result_actors=("EricvanLessen",),
+    )
+    entrypoint.handle_event(
+        event_name="issues",
+        payload=_issue_payload(),
+        delivery_id="delivery-issue",
+        actions_workflow_ref=TRUSTED_DISPATCHER_REF,
+    )
+
+    result = entrypoint.handle_event(
+        event_name="pull_request",
+        payload=_pull_request_payload(actor="EricvanLessen"),
+        delivery_id="delivery-cline-pr",
+        actions_workflow_ref=TRUSTED_DISPATCHER_REF,
+    )
+
+    assert result.action == DispatcherAction.DISPATCHED
+    assert result.reason == "pull request result recorded"
+    assert entrypoint._projection().tasks["task-0009"].state == LifecycleState.WAITING_FOR_CI
 
 
 def test_realistic_repository_workflow_payload_unlocks_ci_gate(tmp_path: Path) -> None:

@@ -34,6 +34,8 @@ def test_render_redacts_credentials_with_explicit_marker() -> None:
             "OPENAI_API_KEY=sk-secretvalue123456\n"
             "COPILOT_AGENT_TOKEN=github_pat_secretvalue123456\n"
             "GITHUB_CONTROL_TOKEN=ghu_secretvalue123456\n"
+            "OPENROUTER_API_KEY=sk-or-v1-secretvalue123456\n"
+            "CLINE_GITHUB_TOKEN=github_pat_clinesecretvalue123456\n"
             "Keep the rest of the note.\n"
         ),
     )
@@ -44,6 +46,8 @@ def test_render_redacts_credentials_with_explicit_marker() -> None:
     assert "sk-secretvalue123456" not in rendered_text
     assert "github_pat_secretvalue123456" not in rendered_text
     assert "ghu_secretvalue123456" not in rendered_text
+    assert "sk-or-v1-secretvalue123456" not in rendered_text
+    assert "github_pat_clinesecretvalue123456" not in rendered_text
 
 
 def test_parse_rejects_malformed_yaml() -> None:

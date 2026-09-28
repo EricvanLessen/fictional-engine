@@ -18,7 +18,7 @@ permissions:
   checks: read
   contents: write
   issues: write
-  pull-requests: read
+  pull-requests: write
 
 concurrency:
   group: development-automation-dispatcher
@@ -36,9 +36,29 @@ jobs:
         EricvanLessen/fictional-engine/.github/workflows/secret-scan.yml@refs/heads/main
       DEVELOPMENT_AUTOMATION_CONTROL_BRANCH: copilot/development-automation-control
       DEVELOPMENT_AUTOMATION_CONTROL_BASE_REF: refs/heads/main
+      DEVELOPMENT_AUTOMATION_CODING_PROVIDER: cline
+      DEVELOPMENT_AUTOMATION_REVIEW_PROVIDER: openrouter
+      DEVELOPMENT_AUTOMATION_CODING_MODEL: openrouter/auto
+      DEVELOPMENT_AUTOMATION_REVIEW_MODEL: openrouter/auto
+      DEVELOPMENT_AUTOMATION_OPENROUTER_COST_QUALITY: "7"
+      DEVELOPMENT_AUTOMATION_CLINE_TIMEOUT_SECONDS: "1800"
+      DEVELOPMENT_AUTOMATION_CLINE_RETRIES: "3"
+      DEVELOPMENT_AUTOMATION_CLINE_THINKING: medium
+      DEVELOPMENT_AUTOMATION_CODING_RESULT_ACTORS: EricvanLessen,Copilot,copilot-swe-agent
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.CLINE_GITHUB_TOKEN || secrets.COPILOT_AGENT_TOKEN }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install Cline CLI
+        run: npm install --global cline@3.0.62
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -93,8 +113,8 @@ jobs:
       - name: Run dispatcher
         env:
           GITHUB_CONTROL_TOKEN: ${{ github.token }}
-          COPILOT_AGENT_TOKEN: ${{ secrets.COPILOT_AGENT_TOKEN }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CLINE_GITHUB_TOKEN: ${{ secrets.CLINE_GITHUB_TOKEN || secrets.COPILOT_AGENT_TOKEN }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           development-automation-dispatch \
             --event-name "${{ github.event_name }}" \

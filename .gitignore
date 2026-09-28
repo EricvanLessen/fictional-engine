@@ -26,6 +26,9 @@ data/
 *.sqlite3
 logs/
 *.log
+control/.append.lock
+control/messages/
+control/runs/
 
 .idea/
 .vscode/

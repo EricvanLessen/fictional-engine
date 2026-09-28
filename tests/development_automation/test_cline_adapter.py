@@ -69,7 +69,7 @@ def test_cline_run_keeps_secrets_out_of_arguments_and_requires_pr(tmp_path: Path
     assert result.status == "accepted"
     command = captured["command"]
     assert isinstance(command, list)
-    assert command[:3] == ["cline", "--json", "--yolo"]
+    assert command[:4] == ["cline", "--json", "--auto-approve", "true"]
     assert "openrouter" in command
     assert "openrouter/auto" in command
     command_text = " ".join(command)
@@ -187,6 +187,7 @@ def test_cline_run_maps_process_failures_without_leaking_output(tmp_path: Path) 
         )
     assert "openrouter-secret" not in str(raised.value)
     assert "github-secret" not in str(raised.value)
+    assert "[REDACTED]" in str(raised.value)
 
 
 def test_cline_run_maps_timeout(tmp_path: Path) -> None:

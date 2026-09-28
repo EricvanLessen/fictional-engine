@@ -252,7 +252,8 @@ Finish only after the draft pull request exists on GitHub.
         return [
             self._cline_executable,
             "--json",
-            "--yolo",
+            "--auto-approve",
+            "true",
             "--retries",
             str(self._retries),
             "--timeout",
@@ -304,7 +305,7 @@ Finish only after the draft pull request exists on GitHub.
                 cwd=self._repository_root,
                 env=environment,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
                 text=True,
                 timeout=self._timeout_seconds + 30,
                 check=False,
@@ -315,7 +316,16 @@ Finish only after the draft pull request exists on GitHub.
             raise ProviderError("Cline CLI could not be started") from exc
 
         if completed.returncode != 0:
-            raise ProviderError(f"Cline coding run failed with exit code {completed.returncode}")
+            stderr = (completed.stderr or "").strip()
+            for secret in (self._openrouter_api_key, self._github_token):
+                stderr = stderr.replace(secret, "[REDACTED]")
+            stderr = " ".join(stderr.split())
+            if len(stderr) > 1000:
+                stderr = stderr[-1000:]
+            detail = f": {stderr}" if stderr else ""
+            raise ProviderError(
+                f"Cline coding run failed with exit code {completed.returncode}{detail}"
+            )
 
         pull_request = self._find_pull_request_by_branch(branch)
         if pull_request is None:

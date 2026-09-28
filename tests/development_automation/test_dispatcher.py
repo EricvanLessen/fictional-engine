@@ -16,6 +16,7 @@ from development_automation.dispatcher_models import (
     DispatchEventType,
     EventSource,
 )
+from development_automation.live_adapters import ProviderError
 from development_automation.markdown import parse_control_document
 from development_automation.mock_agents import MockAgentResult, MockCodingAgent
 from development_automation.schemas.v1 import RunEventDocument
@@ -341,6 +342,67 @@ def test_semantically_different_comments_same_task_attempt_dispatch_once(tmp_pat
     assert "duplicate dispatch intent" in second_outcome.reason
     assert len(agent.dispatch_calls) == 1
 
+
+
+def test_provider_failure_without_pr_can_retry_same_intent(tmp_path: Path) -> None:
+    class RetryOnceAgent(MockCodingAgent):
+        def __init__(self) -> None:
+            super().__init__()
+            self.attempts = 0
+
+        def run(
+            self,
+            *,
+            task_id: str | None,
+            head_sha: str | None,
+            correlation_id: str,
+            branch: str | None,
+        ) -> MockAgentResult:
+            self.attempts += 1
+            if self.attempts == 1:
+                raise ProviderError("Cline exited before creating a pull request")
+            return super().run(
+                task_id=task_id,
+                head_sha=head_sha,
+                correlation_id=correlation_id,
+                branch=branch,
+            )
+
+    agent = RetryOnceAgent()
+    dispatcher = _dispatcher(tmp_path, agent)
+    _append_run_events_for_state(tmp_path / "control", "ready")
+
+    body = b'{"action":"created"}'
+    first = _dispatch_event(
+        delivery_id="delivery-retry-1",
+        event_type=DispatchEventType.ISSUE_COMMENT,
+        source=EventSource.WEBHOOK,
+        body=body,
+        signature=_signature("secret", body),
+        event_action="created",
+        comment_body="task-0042 please retry",
+    )
+    second = _dispatch_event(
+        delivery_id="delivery-retry-2",
+        event_type=DispatchEventType.ISSUE_COMMENT,
+        source=EventSource.WEBHOOK,
+        body=body,
+        signature=_signature("secret", body),
+        event_action="created",
+        comment_body="task-0042 please retry after repair",
+    )
+
+    with pytest.raises(ProviderError):
+        dispatcher.process_event(first)
+
+    intent = next(iter(dispatcher._store.list_unfinished_intents()))
+    assert intent.status == "claimed"
+
+    outcome = dispatcher.process_event(second)
+
+    assert outcome.action == DispatcherAction.DISPATCHED
+    assert agent.attempts == 2
+    assert len(agent.dispatch_calls) == 1
 
 def test_pr_open_then_issue_comment_same_attempt_dispatch_once(tmp_path: Path) -> None:
     agent = MockCodingAgent()

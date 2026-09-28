@@ -20,6 +20,7 @@ from development_automation.dispatcher_store import (
     FileDispatcherStore,
 )
 from development_automation.errors import DevelopmentAutomationError
+from development_automation.live_adapters import ProviderError
 from development_automation.markdown import parse_control_document
 from development_automation.reducer import ControlWorkflowProjection, reduce_run_events
 from development_automation.schemas.v1 import (
@@ -225,7 +226,7 @@ class GitHubEventDispatcher:
             head_sha=event.head_sha,
             branch=event.branch,
         )
-        if not claimed:
+        if not claimed and intent.status != "claimed":
             return DispatcherOutcome(
                 action=DispatcherAction.NOOP,
                 reason="duplicate dispatch intent",
@@ -238,12 +239,24 @@ class GitHubEventDispatcher:
             expected_status="claimed",
             expected_version=intent.version,
         )
-        result = self._coding_agent.run(
-            task_id=event.task_id,
-            head_sha=event.head_sha,
-            correlation_id=intent.correlation_id,
-            branch=event.branch,
-        )
+        try:
+            result = self._coding_agent.run(
+                task_id=event.task_id,
+                head_sha=event.head_sha,
+                correlation_id=intent.correlation_id,
+                branch=event.branch,
+            )
+        except ProviderError:
+            reconciled = self._coding_agent.reconcile(intent.correlation_id)
+            if reconciled is None:
+                self._store.transition_intent(
+                    running_intent.intent_id,
+                    "claimed",
+                    expected_status="running",
+                    expected_version=running_intent.version,
+                )
+                raise
+            result = reconciled
 
         acknowledged_intent = self._store.transition_intent(
             running_intent.intent_id,

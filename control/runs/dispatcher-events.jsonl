@@ -16,3 +16,4 @@
 {"delivery_id": "36429101157-1", "kind": "delivery_seen", "recorded_at": "2026-09-28T13:31:17.237530+00:00"}
 {"delivery_id": "36429274739-1", "kind": "delivery_seen", "recorded_at": "2026-09-28T13:32:50.234761+00:00"}
 {"delivery_id": "36429883868-1", "kind": "delivery_seen", "recorded_at": "2026-09-28T13:37:57.208213+00:00"}
+{"kind":"intent_claimed","recorded_at":"2026-09-28T13:39:10.472Z","intent_id":"2a1603dd-c12d-4d24-84fe-9bfa691b6214","dedupe_key":"dispatch:EricvanLessen/fictional-engine:task-0014:1:feat/telegram-live-ingestion","operation":"dispatch-task","task_id":"task-0014","head_sha":null,"branch":"feat/telegram-live-ingestion","correlation_id":"a2c448e9-4396-469f-8ed0-83c4f3bcf939","status":"claimed","version":3,"lease_owner":null,"lease_expires_at":null,"provider_run_id":null}

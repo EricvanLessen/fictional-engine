@@ -49,7 +49,7 @@ class ClineOpenRouterCodingAgent:
         github_token: str,
         openrouter_api_key: str,
         repository_root: Path,
-        model: str = "openrouter/auto",
+        model: str = "openrouter/pareto-code",
         timeout_seconds: int = 1800,
         retries: int = 3,
         thinking: str = "medium",

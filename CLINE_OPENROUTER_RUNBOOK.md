@@ -30,9 +30,9 @@ Actions token do not start another workflow run.
 
 ## Cost controls
 
-- Coding and review default to `openrouter/auto`.
+- Coding defaults to `openrouter/pareto-code`; review uses `openrouter/auto`.
 - OpenRouter Auto Router's cost/quality tradeoff is `7` for direct review calls.
-- Cline receives the OpenRouter account's Auto Router defaults for coding requests.
+- Cline uses OpenRouter's coding-focused Pareto router for tool-capable coding requests.
 - One Cline process, no teams or sub-agents, at most three consecutive retries, and a 30-minute
   wall-clock timeout.
 - OpenRouter's key spend limit is the hard monetary ceiling. The dispatcher does not attempt to

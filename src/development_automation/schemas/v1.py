@@ -6,7 +6,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-AUTHORITATIVE_CONTROL_REF = "refs/heads/main"
+AUTHORITATIVE_CONTROL_REF = "refs/heads/copilot/development-automation-control"
 MAX_REPAIR_ATTEMPTS_PER_TASK = 3
 MAX_AGENT_TURNS_WITHOUT_PROGRESS = 5
 STOP_REASON_SECOND_TASK_CREATED = "SECOND_TASK_CREATED"

@@ -59,10 +59,10 @@ Reviewer decisions are:
 
 Acceptance and next-task creation are separate auditable events. The reducer persists attempts, no-progress count, head SHA, CI evidence, provider run IDs, and stop reasons. It rejects malformed envelopes, duplicate message IDs at append time, stale heads, path traversal, and unknown transitions.
 
-## Follow-up increments
+## Current increment boundary
 
-- Increment B: deterministic dispatcher, GitHub transport validation, duplicate-delivery control, CI gating.
-- Increment C: supported Copilot provider integration, OpenAI Responses API review loop, real proof cycle.
-- Increment D: continued execution after proof, notifications, and optional merge automation under existing branch protections.
+- Increment B delivered the deterministic dispatcher, GitHub transport validation, duplicate-delivery control, and CI gating.
+- Increment C adds the live GitHub/Copilot provider boundary, the OpenAI Responses API review loop, and the bounded real proof cycle.
+- Increment D remains follow-up work for continued execution after proof, notifications, and optional merge automation under existing branch protections.
 
-Those increments remain follow-up work and are intentionally not implemented in this branch.
+Increment C must continue to enforce the hard stop after `SECOND_TASK_CREATED`.

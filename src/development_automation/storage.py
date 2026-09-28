@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import fcntl
 import os
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import BinaryIO
 
@@ -72,7 +72,13 @@ def load_documents(directory: Path) -> list[Document]:
     ]
 
 
-def append_document(root: Path, relative_directory: str, document: Document) -> Path:
+def append_document(
+    root: Path,
+    relative_directory: str,
+    document: Document,
+    *,
+    after_write: Callable[[tuple[Path, ...]], None] | None = None,
+) -> Path:
     directory = _safe_directory(root, relative_directory)
     canonical_document = _canonicalize_document(document)
     if not _document_matches_directory(relative_directory, canonical_document):
@@ -104,6 +110,8 @@ def append_document(root: Path, relative_directory: str, document: Document) -> 
 
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(rendered_document)
+        if after_write is not None:
+            after_write((destination,))
         return destination
     finally:
         _release_lock(lock_handle)

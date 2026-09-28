@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
   "alembic>=1.13,<2.0",
+  "httpx>=0.28.1,<1.0",
   "pydantic>=2.9,<3.0",
   "pydantic-settings>=2.5,<3.0",
   "sqlalchemy>=2.0,<3.0",
@@ -28,6 +29,7 @@ dev = [
 [project.scripts]
 fictional-engine = "fictional_engine.main:main"
 fictional-engine-replay = "fictional_engine.application.replay_cli:main"
+development-automation-dispatch = "development_automation.entrypoint:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

@@ -3,7 +3,7 @@ from __future__ import annotations
 import fcntl
 import json
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -21,7 +21,7 @@ NON_TERMINAL_INTENT_STATES = {"claimed", "running"}
 
 ALLOWED_STATUS_TRANSITIONS: dict[str, set[str]] = {
     "claimed": {"running", "completed", "failed", "blocked", "unknown"},
-    "running": {"running", "completed", "failed", "blocked", "unknown"},
+    "running": {"claimed", "running", "completed", "failed", "blocked", "unknown"},
     "completed": set(),
     "failed": set(),
     "blocked": set(),
@@ -49,16 +49,24 @@ TERMINAL_INTENT_STATES = TERMINAL_INTENT_STATES.union({"unknown"})
 
 
 class FileDispatcherStore:
-    def __init__(self, control_root: Path) -> None:
+    def __init__(
+        self,
+        control_root: Path,
+        *,
+        after_write: Callable[[tuple[Path, ...]], None] | None = None,
+    ) -> None:
         self._control_root = control_root
         self._runs_dir = control_root / "runs"
         self._runs_dir.mkdir(parents=True, exist_ok=True)
         self._events_path = self._runs_dir / "dispatcher-events.jsonl"
         self._lock_path = self._runs_dir / ".dispatcher-events.lock"
+        self._after_write = after_write
 
     def _append_record_locked(self, record: dict[str, object]) -> None:
         with self._events_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, sort_keys=True) + "\n")
+        if self._after_write is not None:
+            self._after_write((self._events_path,))
 
     def _iter_records(self) -> Iterable[dict[str, object]]:
         if not self._events_path.exists():
@@ -376,5 +384,13 @@ class FileDispatcherStore:
                 for intent in intents_by_id.values()
                 if intent.status in NON_TERMINAL_INTENT_STATES
             ]
+        finally:
+            self._unlock(lock_handle)
+
+    def get_intent(self, intent_id: str) -> DispatchIntent | None:
+        lock_handle = self._lock()
+        try:
+            _, intents_by_id = self._load_state_locked()
+            return intents_by_id.get(intent_id)
         finally:
             self._unlock(lock_handle)

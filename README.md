@@ -99,7 +99,7 @@ For the September 9 fixture sequence, the state machine:
 
 The transactional outbox persists broker intents atomically with state mutations and processed-event markers so replay and restart do not create duplicate commands.
 
-## Development automation bootstrap
+## Development automation
 
 The `development_automation` package now includes:
 

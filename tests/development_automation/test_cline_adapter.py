@@ -71,7 +71,7 @@ def test_cline_run_keeps_secrets_out_of_arguments_and_requires_pr(tmp_path: Path
     assert isinstance(command, list)
     assert command[:4] == ["cline", "--json", "--auto-approve", "true"]
     assert "openrouter" in command
-    assert "openrouter/auto" in command
+    assert "openrouter/pareto-code" in command
     command_text = " ".join(command)
     assert "github-secret" not in command_text
     assert "openrouter-secret" not in command_text

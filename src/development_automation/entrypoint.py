@@ -1072,7 +1072,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--coding-model",
-        default=os.environ.get("DEVELOPMENT_AUTOMATION_CODING_MODEL", "openrouter/auto"),
+        default=os.environ.get("DEVELOPMENT_AUTOMATION_CODING_MODEL", "openrouter/pareto-code"),
     )
     parser.add_argument(
         "--review-model",

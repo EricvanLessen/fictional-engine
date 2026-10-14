@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import hmac
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 
 import pytest
 
 from development_automation.bootstrap import (
-    BootstrapResult,
     TaskBootstrapConfig,
     bootstrap_task,
     create_copilot_dispatch_record,
@@ -18,7 +17,6 @@ from development_automation.bootstrap import (
 )
 from development_automation.dispatcher import DispatcherAction, GitHubEventDispatcher
 from development_automation.dispatcher_models import (
-    CheckRunEvidence,
     DispatcherEvent,
     DispatcherPolicy,
     DispatchEventType,
@@ -287,7 +285,7 @@ def test_increment_c_stops_at_second_task_created(tmp_path: Path) -> None:
 
     # Simulate: task 1 → dispatch → CI → review → create task 2 → set stop boundary
     # For simplicity, manually create the SECOND_TASK_CREATED event (which sets stop boundary)
-    from development_automation.schemas.v1 import RunEventType, DocumentStatus, DocumentType, Actor
+    from development_automation.schemas.v1 import Actor, DocumentStatus, DocumentType, RunEventType
 
     stop_event = RunEventDocument(
         schema_version="control-run.v1",
@@ -298,7 +296,7 @@ def test_increment_c_stops_at_second_task_created(tmp_path: Path) -> None:
         type=DocumentType.RUN_EVENT,
         status=DocumentStatus.RECORDED,
         branch="feat/development-automation-dispatcher",
-        created_at=datetime.now(tz=timezone.utc),
+        created_at=datetime.now(tz=UTC),
         attempt=1,
         expected_head_sha="a" * 40,
         commit_sha="a" * 40,

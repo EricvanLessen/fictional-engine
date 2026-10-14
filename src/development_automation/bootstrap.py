@@ -7,7 +7,7 @@ repeatable manner with proper PR and commit binding.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import NamedTuple
 
@@ -76,7 +76,7 @@ def bootstrap_task(
         config = TaskBootstrapConfig()
 
     task_id = config.task_id or generate_task_id()
-    created_at = config.created_at or datetime.now(tz=timezone.utc)
+    created_at = config.created_at or datetime.now(tz=UTC)
     message_id = f"msg-bootstrap-{task_id}-{uuid.uuid4().hex[:8]}"
 
     # Create the TASK_CREATED event
@@ -147,7 +147,7 @@ def create_copilot_dispatch_record(
         The persisted COPILOT_DISPATCHED event
     """
     if created_at is None:
-        created_at = datetime.now(tz=timezone.utc)
+        created_at = datetime.now(tz=UTC)
 
     message_id = f"msg-copilot-dispatched-{task_id}-{uuid.uuid4().hex[:8]}"
 

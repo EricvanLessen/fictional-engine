@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from development_automation.bootstrap import (
@@ -65,12 +65,12 @@ def _cmd_bootstrap(args) -> int:
         branch=args.branch,
         pull_request_number=args.pr_number,
         head_sha=args.head_sha,
-        created_at=datetime.now(tz=timezone.utc),
+        created_at=datetime.now(tz=UTC),
     )
 
     result = bootstrap_task(args.control_root, config)
 
-    print(f"✓ Bootstrap complete")
+    print("✓ Bootstrap complete")
     print(f"  task_id: {result.task_id}")
     print(f"  message_id: {result.message_id}")
     print(f"  event_path: {result.event_path}")
@@ -88,15 +88,15 @@ def _cmd_simulate_dispatch(args) -> int:
         head_sha=args.head_sha,
         branch=args.branch,
         provider_run_id=args.provider_run_id,
-        created_at=datetime.now(tz=timezone.utc),
+        created_at=datetime.now(tz=UTC),
     )
 
-    print(f"✓ Copilot dispatched")
+    print("✓ Copilot dispatched")
     print(f"  task_id: {event.task_id}")
     print(f"  message_id: {event.message_id}")
     print(f"  lifecycle_state: {event.lifecycle_state}")
     print(f"  provider_run_id: {event.provider_run_id}")
-    print(f"\nNext step: wait for CI checks or send CI evidence to dispatcher")
+    print("\nNext step: wait for CI checks or send CI evidence to dispatcher")
 
     return 0
 

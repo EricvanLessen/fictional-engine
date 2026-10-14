@@ -33,3 +33,6 @@ control/runs/
 .idea/
 .vscode/
 .DS_Store
+
+# local worktree clone, pushed separately
+fictional-engine-issue6-b/
